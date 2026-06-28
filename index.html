@@ -123,6 +123,8 @@ tr.clickable:active{background:#F2EEE5;}
 .lbsum{font-weight:700;}
 .lrow{display:grid; grid-template-columns:88px 1fr auto auto; gap:6px; align-items:center; margin-bottom:6px;}
 .lrow .li-c{min-width:0;}
+.enllac input[readonly]{opacity:.7; cursor:default;}
+.enllac .ex-open{padding:2px 6px;}
 .li-reclbl{display:flex; gap:3px; align-items:center; font-size:.82rem; white-space:nowrap;}
 .li-del{padding:6px 9px;}
 .li-add{margin-top:2px;}
@@ -314,6 +316,7 @@ function dia(isoStr){return Y().dies[isoStr]||null;}
 function factDia(ds){return Y().factures.filter(f=>f.estat==='Pagat'&&f.dataPagISO===ds);}
 function factDiaRec(ds){return factDia(ds).filter(f=>f.recDia).reduce((s,f)=>s+num(f.imp),0);}
 function despCCDia(ds){const c=ccCatByRole('despcc');if(!c)return [];return Y().cc.filter(m=>m.data===ds&&m.catId===c.id&&m.estat!=='Cancelat');}
+function despCCDiaRec(ds){return despCCDia(ds).filter(m=>m.recDia).reduce((s,m)=>s+num(m.debe),0);}
 /* ----- Línies del dia (Fp/FpL/Despeses): cada línia {imp, c(concepte), rec(bool)} ----- */
 function lineSum(a){return (a||[]).reduce((s,l)=>s+num(l.imp),0);}        // suma imports
 function lineRec(a){return (a||[]).reduce((s,l)=>s+(l.rec?num(l.imp):0),0);} // suma només línies marcades rec
@@ -321,7 +324,7 @@ function dFp(d){return d?lineSum(d.fpLines):0;}
 function dFpl(d){return d?lineSum(d.fplLines):0;}
 function dDesp(d){return d?lineSum(d.despLines):0;}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
-function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+num(d.tpv)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds);return r;}
+function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+num(d.tpv)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
 function totalsRang(isos){
   const t={ef:0,tpv:0,rec:0,desp:0,fp:0,fpl:0};
   for(const ds of isos){const d=dia(ds);
@@ -420,15 +423,23 @@ function vAvui(){
   ${infoDiaHTML(ds)}
   <div class="card" id="resumSetmanaAvui"></div>`;
 }
+function exLineHTML(src,id,imp,concept,rec){
+  return `<div class="lrow enllac" data-src="${src}" data-id="${esc(id)}">
+    <input class="num li-imp" value="${eur0(num(imp))}" readonly tabindex="-1">
+    <input class="li-c" value="${esc(concept)}" readonly tabindex="-1">
+    <label class="li-reclbl" title="Compta com a recaptació del dia"><input type="checkbox" class="li-rec ex-rec" ${rec?'checked':''}> rec</label>
+    <button class="small ex-open" type="button" title="Obre per editar">↗</button>
+  </div>`;
+}
 function infoDiaHTML(ds){
   const dc=despCCDia(ds), ff=factDia(ds);
   if(!dc.length&&!ff.length)return '';
-  let h='<div class="card"><h3>Aquest dia · enllaços</h3>';
-  if(dc.length){h+='<div class="muted" style="margin-bottom:4px">Despeses c/c (informatiu, no sumen al dia):</div>';
-    dc.forEach(m=>{h+=`<div class="obsline">${esc(m.concepte||'Despesa c/c')} — <b class="num">${eur0(num(m.debe))}</b></div>`;});}
-  if(ff.length){h+='<div class="muted" style="margin:6px 0 4px">Factures pagades avui:</div>';
-    ff.forEach(f=>{h+=`<div class="obsline">#${f.num??'—'} ${esc(f.empresa||'')} — <b class="num">${eur0(num(f.imp))}</b> · ${f.recDia?'compta a recaptació':'informatiu'}</div>`;});}
-  h+='</div>';return h;
+  let h='<div class="card" id="cardEnllacos"><h3>Banc i factures d\'aquest dia</h3>'+
+    '<div class="muted" style="margin-bottom:6px">Marca «rec» a cada línia si vols que compti a la recaptació del dia.</div>'+
+    '<div class="lineblk">';
+  ff.forEach(f=>{h+=exLineHTML('fact',f.id,f.imp,'#'+(f.num??'—')+' '+(f.empresa||f.concepte||'Factura'),!!f.recDia);});
+  dc.forEach(m=>{h+=exLineHTML('cc',m.id,m.debe,m.concepte||'Despesa c/c',!!m.recDia);});
+  h+='</div></div>';return h;
 }
 function bindAvui(){
   const ds0=ctx.data||hui();
@@ -446,7 +457,7 @@ function bindAvui(){
         const v=num(row.querySelector('.li-imp').value); s+=v;
         if(row.querySelector('.li-rec').checked)r+=v;});
       const el=document.getElementById('sum_'+key); if(el)el.textContent=eur0(s);});
-    r+=factDiaRec(ds0);
+    r+=factDiaRec(ds0)+despCCDiaRec(ds0);
     $('#recVal').textContent=eur0(r);
   };
   ['f_ef','f_tpv'].forEach(id=>$('#'+id).addEventListener('input',recalc));
@@ -460,6 +471,23 @@ function bindAvui(){
     const del=e.target.closest('.li-del');
     if(del){const row=del.closest('.lrow'); const k=row.dataset.k; const i=parseInt(row.dataset.i); syncLines(); avuiLines[k].splice(i,1); renderBlock(k); recalc(); return;}
   });
+  // Enllaços (banc i factures): la casella «rec» decideix si compten a la recaptació
+  const cardEx=$('#cardEnllacos');
+  if(cardEx){
+    cardEx.addEventListener('change',e=>{
+      if(!e.target.classList.contains('ex-rec'))return;
+      const row=e.target.closest('.lrow'), src=row.dataset.src, id=row.dataset.id, on=e.target.checked;
+      if(src==='fact'){const f=Y().factures.find(x=>x.id===id); if(f){f.recDia=on; save();}}
+      else if(src==='cc'){const m=Y().cc.find(x=>x.id===id); if(m){m.recDia=on; save();}}
+      recalc();
+    });
+    cardEx.addEventListener('click',e=>{
+      const op=e.target.closest('.ex-open'); if(!op)return;
+      const row=op.closest('.lrow'), src=row.dataset.src, id=row.dataset.id;
+      if(src==='fact'){const f=Y().factures.find(x=>x.id===id); if(f)formFactura(f);}
+      else if(src==='cc'){const m=Y().cc.find(x=>x.id===id); if(m)formCC(m);}
+    });
+  }
   recalc();
   $('#f_data').addEventListener('change',()=>{
     const ds=$('#f_data').value; if(!ds)return;
@@ -674,6 +702,7 @@ function formCC(m){
       const obj={id:m.id||uid(),data,concepte:el.querySelector('#c_conc').value.trim(),
         catId:el.querySelector('#c_cat').value,estat:el.querySelector('#c_est').value,
         debe:numOrNull(el.querySelector('#c_debe').value),haber:numOrNull(el.querySelector('#c_haber').value),
+        recDia:!!m.recDia,
         obs:el.querySelector('#c_obs').value.trim()};
       if(m.id){const i=Y().cc.findIndex(x=>x.id===m.id);Y().cc[i]=obj;}else Y().cc.push(obj);
       save();tancaModal();go('cc',{mes:mesDeIso(data)});
