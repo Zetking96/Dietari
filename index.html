@@ -1300,6 +1300,8 @@ function vConfig(){
   </div>
   <div class="card">
     <h3>Zona de perill</h3>
+    <p class="muted">Comença de zero: esborra TOTES les dades introduïdes (dietari, tancaments, banc, factures i compres) de tots els anys. El catàleg d'olives i les categories del compte corrent es reinicien als valors per defecte.</p>
+    <button class="danger" id="cf_reset" style="width:100%;margin-bottom:10px">Esborra totes les dades (comença de zero)</button>
     <button class="danger" id="cf_esborra" style="width:100%">Esborra l'any ${S.activeYear}</button>
   </div>`;
 }
@@ -1341,6 +1343,13 @@ function bindConfig(){
   $('#cf_delTanc').addEventListener('click',()=>{
     if(!confirm('Esborrar TOTS els tancaments setmanals de '+S.activeYear+'? No es pot desfer.'))return;
     Y().tanc={};save();alert('Tancaments esborrats.');render();
+  });
+  $('#cf_reset').addEventListener('click',()=>{
+    if(!confirm('Esborrar TOTES les dades introduïdes (dietari, tancaments, banc, factures i compres) de TOTS els anys i començar de zero? No es pot desfer.'))return;
+    if(!confirm('Segur del tot? Aquesta acció esborra tots els apunts i no es pot desfer.'))return;
+    Object.keys(S.years).forEach(a=>{S.years[a]=anyBuit();});
+    S.ccCats=JSON.parse(JSON.stringify(CC_SEED));
+    save();pintaAnys();alert('Fet: totes les dades esborrades. Comences de zero.');go('avui');
   });
   $('#cf_esborra').addEventListener('click',()=>{
     if(Object.keys(S.years).length===1){alert('No pots esborrar l\'únic any que hi ha.');return;}
