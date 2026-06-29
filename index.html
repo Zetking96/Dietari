@@ -722,18 +722,17 @@ function vFactures(){
   const q=(ctx.q||'').toLowerCase(); const fEstat=ctx.estat||'Tots';
   let fs=Y().factures.slice().sort((a,b)=>(b.num||0)-(a.num||0));
   if(fEstat!=='Tots')fs=fs.filter(f=>f.estat===fEstat);
-  if(q)fs=fs.filter(f=>[f.num,f.ref,f.empresa,f.concepte,f.talo,f.obs].some(v=>String(v??'').toLowerCase().includes(q)));
+  if(q)fs=fs.filter(f=>[f.num,f.empresa,f.concepte,f.talo,f.obs].some(v=>String(v??'').toLowerCase().includes(q)));
   const pend=Y().factures.filter(f=>f.estat==='Pendent').reduce((s,f)=>s+num(f.imp),0);
   let h=`<h2>Factures</h2>
-  <div class="searchbar"><input id="f_q" type="search" placeholder="Cerca: empresa, núm. taló, referència…" value="${esc(ctx.q||'')}"></div>
+  <div class="searchbar"><input id="f_q" type="search" placeholder="Cerca: proveïdor, núm. taló…" value="${esc(ctx.q||'')}"></div>
   <div class="subtabs">${['Tots','Pendent','Pagat'].map(e=>`<button data-estat="${e}" class="${e===fEstat?'on':''}">${e}</button>`).join('')}</div>
   <div class="card tight"><div class="item" style="cursor:default"><div class="t">Pendent de pagar</div><div class="imp pend num">${eur0(pend)}</div></div></div>`;
   if(!fs.length)h+='<div class="card muted">Cap factura amb aquest filtre.</div>';
   else h+='<div class="card tight">'+fs.map(f=>`
     <div class="item" data-fac="${f.id}"><div>
-      <div class="t">#${f.num??'—'} · ${esc(f.empresa||'(sense empresa)')}</div>
-      <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):(f.dataPag?' · '+esc(f.dataPag):'')}</div>
-      ${f.ref?'<div class="s">Ref. '+esc(f.ref)+'</div>':''}
+      <div class="t">#${f.num??'—'} · ${esc(f.empresa||'(sense proveïdor)')}</div>
+      <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):''}</div>
     </div><div style="text-align:right"><div class="imp num">${eur(num(f.imp))}</div><span class="chip ${f.estat.toLowerCase()}">${f.estat}</span></div></div>`).join('')+'</div>';
   // vincles per taló
   if(q){
@@ -754,14 +753,11 @@ function refrescaSuau(){clearTimeout(refTimer);refTimer=setTimeout(()=>{const q=
 function formFactura(f){
   const nou=!f;
   const numSeg=Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;
-  f=f||{num:numSeg,ref:'',imp:'',concepte:'Bacallà',categoria:'FpL',estat:'Pendent',mode:'Taló',talo:'',dataPag:'',dataPagISO:'',recDia:false,empresa:'',obs:''};
+  f=f||{num:numSeg,imp:'',concepte:'Bacallà',categoria:'FpL',estat:'Pendent',mode:'Taló',talo:'',dataPagISO:'',recDia:false,empresa:'',obs:''};
   modal(mTitle(nou?'Nova factura':'Edita factura')+`
-    <div class="row2">
-      <div><label>Núm. intern</label><input id="x_num" class="num" inputmode="numeric" value="${f.num??''}"></div>
-      <div><label>Referència proveïdor</label><input id="x_ref" value="${esc(f.ref||'')}"></div>
-    </div>
-    <label>Empresa</label><input id="x_emp" value="${esc(f.empresa||'')}" list="empreses">
-    <datalist id="empreses">${[...new Set(Y().factures.map(x=>x.empresa).filter(Boolean))].map(e=>`<option value="${esc(e)}">`).join('')}</datalist>
+    <label>Núm. intern</label><input id="x_num" class="num" inputmode="numeric" value="${f.num??''}">
+    <label>Proveïdor</label><input id="x_emp" value="${esc(f.empresa||f.ref||'')}" list="dl_provs">
+    <datalist id="dl_provs">${dlOpts(provList())}</datalist>
     <div class="row2">
       <div><label>Import</label><input id="x_imp" class="num" inputmode="decimal" value="${f.imp??''}"></div>
       <div><label>Concepte</label><select id="x_conc">${F_CONCEPTES.map(c=>`<option ${c===f.concepte?'selected':''}>${c}</option>`).join('')}</select></div>
@@ -774,22 +770,18 @@ function formFactura(f){
       <div><label>Mode de pagament</label><select id="x_mode">${F_MODES.map(c=>`<option ${c===f.mode?'selected':''}>${c}</option>`).join('')}</select></div>
       <div><label>Núm. taló</label><input id="x_talo" value="${esc(f.talo||'')}"></div>
     </div>
-    <div class="row2">
-      <div><label>Data de pagament (per al dietari)</label><input type="date" id="x_dpagiso" value="${esc(f.dataPagISO||'')}"></div>
-      <div><label>Nota de pagament (lliure)</label><input id="x_dpag" value="${esc(f.dataPag||'')}" placeholder="p. ex. dos talons"></div>
-    </div>
-    <label style="display:flex;gap:8px;align-items:center;margin:6px 0"><input type="checkbox" id="x_recdia" ${f.recDia?'checked':''}> Quan estigui pagada, compta com a recaptació del dia</label>
+    <label>Data de pagament (per al dietari)</label><input type="date" id="x_dpagiso" value="${esc(f.dataPagISO||'')}">
     <label>Observacions</label><textarea id="x_obs">${esc(f.obs||'')}</textarea>
     <button class="primary" id="x_desa">Desa</button>
     ${nou?'':'<button class="danger" id="x_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     el.querySelector('#x_desa').addEventListener('click',()=>{
-      const obj={id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),ref:el.querySelector('#x_ref').value.trim(),
+      const obj={id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),
         empresa:el.querySelector('#x_emp').value.trim(),imp:numOrNull(el.querySelector('#x_imp').value),
         concepte:el.querySelector('#x_conc').value,categoria:el.querySelector('#x_cat').value,
         estat:el.querySelector('#x_est').value,mode:el.querySelector('#x_mode').value,
-        talo:el.querySelector('#x_talo').value.trim(),dataPag:el.querySelector('#x_dpag').value.trim(),
-        dataPagISO:el.querySelector('#x_dpagiso').value||'',recDia:el.querySelector('#x_recdia').checked,
+        talo:el.querySelector('#x_talo').value.trim(),
+        dataPagISO:el.querySelector('#x_dpagiso').value||'',recDia:!!f.recDia,
         obs:el.querySelector('#x_obs').value.trim()};
       if(obj.imp==null){alert('Falta l\'import.');return;}
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
@@ -831,7 +823,10 @@ function trimestre(isoStr){return isoStr?Math.floor((parseInt(isoStr.slice(5,7))
 /* «Base de dades» de productes i proveïdors: valors únics ja introduïts, per triar-los de nou */
 function distinctVals(arr,key){return [...new Set((arr||[]).map(x=>String(x[key]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
 function dlOpts(vals){return vals.map(v=>`<option value="${esc(v)}"></option>`).join('');}
-function provList(){return distinctVals([...Y().bacalla,...Y().conserva],'prov');}
+function provList(){
+  const vals=[...distinctVals(Y().bacalla,'prov'),...distinctVals(Y().conserva,'prov'),...distinctVals(Y().factures,'empresa')];
+  return [...new Set(vals)].sort((a,b)=>a.localeCompare(b,'ca'));
+}
 function vBacalla(){
   const rs=Y().bacalla.slice().sort((a,b)=>(a.dataPag||'')<(b.dataPag||'')?-1:1);
   if(!rs.length)return '<div class="card muted">Cap compra de bacallà. Afegeix-ne amb el botó +.</div>';
@@ -1206,8 +1201,8 @@ function exportaXLSX(){
   Y().cc.slice().sort((a,b)=>a.data<b.data?-1:1).forEach(m=>cc.push([m.data,m.concepte,ccCatNom(m),n0(m.debe),n0(m.haber),m.estat,m.obs||'']));
   fullA(wb,cc,'Compte corrent');
   // Factures
-  const ff=[['Número','Referència','Import','Concepte','Categoria','Estat','Mode pagament','Núm taló','Data pagament','Recaptació','Empresa','Observacions']];
-  Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>ff.push([n0(f.num),f.ref||'',n0(f.imp),f.concepte||'',f.categoria||'',f.estat,f.mode||'',f.talo||'',f.dataPagISO||f.dataPag||'',f.recDia?'sí':'',f.empresa||'',f.obs||'']));
+  const ff=[['Número','Proveïdor','Import','Concepte','Categoria','Estat','Mode pagament','Núm taló','Data pagament','Recaptació','Observacions']];
+  Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>ff.push([n0(f.num),f.empresa||'',n0(f.imp),f.concepte||'',f.categoria||'',f.estat,f.mode||'',f.talo||'',f.dataPagISO||'',f.recDia?'sí':'',f.obs||'']));
   fullA(wb,ff,'Factures');
   // Bacallà
   const bb=[['Tipus','Kg','Import','Cost €/kg','Preu venda €/kg','% Benefici','Data pagament','Proveïdor']];
