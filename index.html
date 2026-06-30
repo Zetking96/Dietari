@@ -345,6 +345,8 @@ function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLine
 function tpvBancDia(ds){const c=ccCatByRole('tpv');if(!c||!ds)return 0;return Y().cc.filter(m=>m.catId===c.id&&m.estat!=='Cancelat'&&(m.tpvData||m.data)===ds).reduce((s,m)=>s+num(m.haber),0);}
 function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0);}
 function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:0;}
+function comissioTpvRang(isos){return (isos||[]).reduce((s,ds)=>s+comissioTpvDia(dia(ds),ds),0);}
+function tpvBrutRang(isos){return (isos||[]).reduce((s,ds)=>{const d=dia(ds);return s+(d?num(d.tpv):0);},0);}
 function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+tpvNetDia(d,ds)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
 function totalsRang(isos){
   const t={ef:0,tpv:0,rec:0,desp:0,fp:0,fpl:0};
@@ -484,7 +486,8 @@ function bindAvui(){
     r+=factDiaRec(ds0)+despCCDiaRec(ds0);
     $('#recVal').textContent=eur0(r);
     const info=$('#tpvInfo');
-    if(info)info.textContent=tpvBanc>0?('TPV net del banc: '+eur0(tpvBanc)+' · comissió: '+eur0(tpvBrut-tpvBanc)):(tpvBrut?'TPV en brut (provisional, encara sense ingrés al banc)':'');
+    if(info){const com=tpvBrut-tpvBanc, pct=tpvBrut?(100*com/tpvBrut).toFixed(1):'0';
+      info.textContent=tpvBanc>0?('TPV net del banc: '+eur0(tpvBanc)+' · comissió: '+eur0(com)+' ('+pct+'%)'):(tpvBrut?'TPV en brut (provisional, encara sense ingrés al banc)':'');}
   };
   ['f_ef','f_tpv'].forEach(id=>$('#'+id).addEventListener('input',recalc));
   // Delegació d'esdeveniments al card (sobreviu als re-renders dels blocs)
@@ -582,6 +585,9 @@ function vDietari(){
   const t=totalsMes(mes), dcc=despCCMes(mes);
   h+='<div class="card"><h3>Total del mes (suma de setmanes)</h3>'+
     kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)],['Despeses c/c',eur0(dcc)],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']])+'</div>';
+  const comMes=comissioTpvRang(isosDelMes(mes));
+  h+='<div class="card"><h3>Comissions TPV del mes</h3>'+
+    kpiGrid([['Comissió TPV',eur0(comMes)],['% comissió',t.tpv?(100*comMes/t.tpv).toFixed(1)+' %':'—'],['TPV brut',eur0(t.tpv)],['TPV net',eur0(t.tpv-comMes)]])+'</div>';
   return h;
 }
 function clauMes(mes){return S.activeYear+'-'+String(mes+1).padStart(2,'0');}
