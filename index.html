@@ -316,20 +316,37 @@ function setmanesDelMes(any,mes){
 function dia(isoStr){return Y().dies[isoStr]||null;}
 function factDia(ds){return Y().factures.filter(f=>f.estat==='Pagat'&&f.dataPagISO===ds);}
 function factDiaRec(ds){return factDia(ds).filter(f=>f.recDia).reduce((s,f)=>s+num(f.imp),0);}
+/* Cada factura suma a un bloc del dia segons la seva categoria: Fp / FpL / Despeses (la resta → Despeses) */
+function factBlock(f){const c=(f&&f.categoria)||'';return c==='Fp'?'fp':c==='FpL'?'fpl':'desp';}
+function factDiaBloc(ds,bloc){return ds?factDia(ds).filter(f=>factBlock(f)===bloc).reduce((s,f)=>s+num(f.imp),0):0;}
+/* Factures automàtiques lligades a una compra (srcType+srcId). Estat segons data: amb data→Pagat, sense→Pendent */
+function nextFacturaNum(){return Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;}
+function syncFacturaSrc(t,id,o){ // o={imp,dataISO,categoria,empresa,concepte}
+  let f=Y().factures.find(x=>x.auto&&x.srcType===t&&x.srcId===id);
+  if(o.imp==null||num(o.imp)===0){ if(f)Y().factures=Y().factures.filter(x=>x!==f); return; }
+  const pagat=!!o.dataISO;
+  const base={imp:num(o.imp),categoria:o.categoria||'Despeses',empresa:(o.empresa||'').trim(),concepte:o.concepte||'',
+    estat:pagat?'Pagat':'Pendent',dataPagISO:pagat?o.dataISO:'',mode:'Taló',talo:'',obs:'',auto:true,srcType:t,srcId:id};
+  if(f)Object.assign(f,base);
+  else Y().factures.push(Object.assign({id:uid(),num:nextFacturaNum(),recDia:false},base));
+}
+function deleteFacturaSrc(t,id){Y().factures=Y().factures.filter(x=>!(x.auto&&x.srcType===t&&x.srcId===id));}
+function diaCatSelect(id,val){return `<select id="${id}">`+['Despeses','FpL','Fp'].map(c=>`<option ${c===(val||'Despeses')?'selected':''}>${c}</option>`).join('')+'</select>';}
 function despCCDia(ds){const c=ccCatByRole('despcc');if(!c)return [];return Y().cc.filter(m=>m.data===ds&&m.catId===c.id&&m.estat!=='Cancelat');}
 function despCCDiaRec(ds){return despCCDia(ds).filter(m=>m.recDia).reduce((s,m)=>s+num(m.debe),0);}
 /* ----- Línies del dia (Fp/FpL/Despeses): cada línia {imp, c(concepte), rec(bool)} ----- */
 function lineSum(a){return (a||[]).reduce((s,l)=>s+num(l.imp),0);}        // suma imports
 function lineRec(a){return (a||[]).reduce((s,l)=>s+(l.rec?num(l.imp):0),0);} // suma només línies marcades rec
-function dFp(d){return d?lineSum(d.fpLines):0;}
-function dFpl(d){return d?lineSum(d.fplLines):0;}
-function dDesp(d){return d?lineSum(d.despLines):0;}
+function dFp(d,ds){return (d?lineSum(d.fpLines):0)+factDiaBloc(ds,'fp');}
+function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl');}
+function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
 function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+num(d.tpv)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
 function totalsRang(isos){
   const t={ef:0,tpv:0,rec:0,desp:0,fp:0,fpl:0};
   for(const ds of isos){const d=dia(ds);
-    if(d){t.ef+=num(d.ef);t.tpv+=num(d.tpv);t.desp+=dDesp(d);t.fp+=dFp(d);t.fpl+=dFpl(d);}
+    if(d){t.ef+=num(d.ef);t.tpv+=num(d.tpv);}
+    t.desp+=dDesp(d,ds);t.fp+=dFp(d,ds);t.fpl+=dFpl(d,ds);
     t.rec+=recDia(d,ds);
   }
   return t;
@@ -538,10 +555,11 @@ function vDietari(){
     h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Dia</th><th class="n">Efectiu</th><th class="n">TPV</th><th class="n">Recapt.</th><th class="n">Desp.</th><th class="n">Fp</th><th class="n">FpL</th></tr></thead><tbody>';
     w.forEach(ds=>{
       const d=dia(ds); const dow=(new Date(ds+'T12:00').getDay()+6)%7;
+      const vDesp=dDesp(d,ds),vFp=dFp(d,ds),vFpl=dFpl(d,ds);
       h+=`<tr class="clickable" data-dia="${ds}"><td>${DIES[dow]} ${parseInt(ds.slice(8))}${d&&d.obs?' ✎':''}</td>
         <td class="n">${d&&d.ef!=null?eur0(d.ef):''}</td><td class="n">${d&&d.tpv!=null?eur0(d.tpv):''}</td>
-        <td class="n">${(d||factDia(ds).length)?eur0(recDia(d,ds)):''}</td><td class="n">${d&&dDesp(d)?eur0(dDesp(d))+(lineRec(d.despLines)?'*':''):''}</td>
-        <td class="n">${d&&dFp(d)?eur0(dFp(d))+(lineRec(d.fpLines)?'*':''):''}</td><td class="n">${d&&dFpl(d)?eur0(dFpl(d))+(lineRec(d.fplLines)?'*':''):''}</td></tr>`;
+        <td class="n">${(d||factDia(ds).length)?eur0(recDia(d,ds)):''}</td><td class="n">${vDesp?eur0(vDesp)+(d&&lineRec(d.despLines)?'*':''):''}</td>
+        <td class="n">${vFp?eur0(vFp)+(d&&lineRec(d.fpLines)?'*':''):''}</td><td class="n">${vFpl?eur0(vFpl)+(d&&lineRec(d.fplLines)?'*':''):''}</td></tr>`;
     });
     h+=`<tr class="total"><td>Setm. ${i+1}</td><td class="n">${eur0(t.ef)}</td><td class="n">${eur0(t.tpv)}</td><td class="n">${eur0(t.rec)}</td><td class="n">${eur0(t.desp)}</td><td class="n">${eur0(t.fp)}</td><td class="n">${eur0(t.fpl)}</td></tr>`;
     h+='</tbody></table></div>';
@@ -715,7 +733,7 @@ function formCC(m){
 function dataDefecte(){const h=hui();return h.slice(0,4)===S.activeYear?h:S.activeYear+'-01-01';}
 
 /* ================= VISTA: FACTURES ================= */
-const F_CATS=['FpL','Despeses cc','Fp'];
+const F_CATS=['Despeses','FpL','Fp'];
 const F_MODES=['Taló','Transferència','Domiciliació','Metàl·lic'];
 const F_CONCEPTES=['Bacallà','Conserva','Olives','Paper','Gestoria','Llum','Quota Associació','Altres'];
 function vFactures(){
@@ -731,7 +749,7 @@ function vFactures(){
   if(!fs.length)h+='<div class="card muted">Cap factura amb aquest filtre.</div>';
   else h+='<div class="card tight">'+fs.map(f=>`
     <div class="item" data-fac="${f.id}"><div>
-      <div class="t">#${f.num??'—'} · ${esc(f.empresa||'(sense proveïdor)')}</div>
+      <div class="t">#${f.num??'—'} · ${esc(f.empresa||'(sense proveïdor)')}${f.auto?' <span class="muted" style="font-weight:400">· compra</span>':''}</div>
       <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):''}</div>
     </div><div style="text-align:right"><div class="imp num">${eur(num(f.imp))}</div><span class="chip ${f.estat.toLowerCase()}">${f.estat}</span></div></div>`).join('')+'</div>';
   // vincles per taló
@@ -743,10 +761,22 @@ function vFactures(){
   }
   return h;
 }
+function obreFacturaSrc(f){
+  const src=f.srcType==='bacalla'?Y().bacalla.find(x=>x.id===f.srcId)
+    :f.srcType==='conserva'?Y().conserva.find(x=>x.id===f.srcId)
+    :f.srcType==='oliva'?Y().olivesCompres.find(x=>x.id===f.srcId):null;
+  if(!src){formFactura(f);return;}
+  if(f.srcType==='bacalla')formBacalla(src);
+  else if(f.srcType==='conserva')formConserva(src);
+  else formOlivaCompra(src);
+}
 function bindFactures(){
   $('#f_q').addEventListener('input',e=>{ctx.q=e.target.value; refrescaSuau();});
   document.querySelectorAll('[data-estat]').forEach(b=>b.addEventListener('click',()=>{ctx.estat=b.dataset.estat;render();}));
-  document.querySelectorAll('[data-fac]').forEach(el=>el.addEventListener('click',()=>formFactura(Y().factures.find(f=>f.id===el.dataset.fac))));
+  document.querySelectorAll('[data-fac]').forEach(el=>el.addEventListener('click',()=>{
+    const f=Y().factures.find(x=>x.id===el.dataset.fac);
+    if(f&&f.auto)obreFacturaSrc(f);else formFactura(f);
+  }));
 }
 let refTimer=null;
 function refrescaSuau(){clearTimeout(refTimer);refTimer=setTimeout(()=>{const q=$('#f_q');const pos=q.selectionStart;render();const q2=$('#f_q');q2.focus();q2.setSelectionRange(pos,pos);},250);}
@@ -850,7 +880,7 @@ function vBacalla(){
   return h;
 }
 function formBacalla(r){
-  const nou=!r; r=r||{tipus:'',kg:'',imp:'',dataPag:'',pv:'',prov:''};
+  const nou=!r; r=r||{tipus:'',kg:'',imp:'',dataPag:'',pv:'',prov:'',diaCat:'Despeses'};
   modal(mTitle(nou?'Nova compra de bacallà':'Edita compra')+`
     <label>Tipus (Filet, 20/30…)</label><input id="b_tipus" list="dl_bacTipus" value="${esc(r.tipus)}">
     <datalist id="dl_bacTipus">${dlOpts(distinctVals(Y().bacalla,'tipus'))}</datalist>
@@ -864,7 +894,9 @@ function formBacalla(r){
     </div>
     <label>Proveïdor</label><input id="b_prov" list="dl_provs" value="${esc(r.prov||'')}">
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
+    <label>Categoria al dietari</label>${diaCatSelect('b_cat',r.diaCat)}
     <div class="muted" id="b_calc" style="margin-top:8px"></div>
+    <p class="muted" style="margin:4px 0">Es crearà una factura lligada a aquesta compra. Si hi poses data de pagament, sortirà al dietari aquell dia i sumarà a la categoria triada.</p>
     <button class="primary" id="b_desa">Desa</button>
     ${nou?'':'<button class="danger" id="b_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
@@ -875,12 +907,13 @@ function formBacalla(r){
     el.querySelector('#b_desa').addEventListener('click',()=>{
       const obj={id:r.id||uid(),tipus:el.querySelector('#b_tipus').value.trim(),kg:numOrNull(el.querySelector('#b_kg').value),
         imp:numOrNull(el.querySelector('#b_imp').value),pv:numOrNull(el.querySelector('#b_pv').value),
-        dataPag:el.querySelector('#b_dpag').value,prov:el.querySelector('#b_prov').value.trim()};
+        dataPag:el.querySelector('#b_dpag').value,prov:el.querySelector('#b_prov').value.trim(),diaCat:el.querySelector('#b_cat').value};
       if(r.id){const i=Y().bacalla.findIndex(x=>x.id===r.id);Y().bacalla[i]=obj;}else Y().bacalla.push(obj);
+      syncFacturaSrc('bacalla',obj.id,{imp:obj.imp,dataISO:obj.dataPag,categoria:obj.diaCat,empresa:obj.prov,concepte:'Bacallà'+(obj.tipus?' '+obj.tipus:'')});
       save();tancaModal();render();
     });
     const del=el.querySelector('#b_del');
-    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().bacalla=Y().bacalla.filter(x=>x.id!==r.id);save();tancaModal();render();}});
+    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().bacalla=Y().bacalla.filter(x=>x.id!==r.id);deleteFacturaSrc('bacalla',r.id);save();tancaModal();render();}});
   });
 }
 /* --- Olives --- */
@@ -994,11 +1027,17 @@ function formOlivaCat(p){
     if(del)del.addEventListener('click',()=>{if(confirm('Eliminar tipus del catàleg? Les compres existents quedaran sense nom.')){Y().olivesCat=Y().olivesCat.filter(x=>x.id!==p.id);save();tancaModal();render();}});
   });
 }
+function olDissabte(setISO){const d=parseISO(setISO);d.setDate(d.getDate()+5);return isoD(d);}
+function olivaSyncFactura(o){
+  if(o.fact){const p=olCat().find(x=>x.id===o.prod);
+    syncFacturaSrc('oliva',o.id,{imp:o.imp,dataISO:o.dataPag,categoria:o.diaCat,empresa:o.prov,concepte:'Olives'+(p?' '+p.nom:'')});}
+  else deleteFacturaSrc('oliva',o.id);
+}
 function formOlivaCompra(c){
   const cat=olCat();
   if(!cat.length){formOlivaCat();return;}
   const nou=!c; const set=ctx.setOl||defaultSet();
-  c=c||{prod:cat[0].id,set:set,quant:'',imp:''};
+  c=c||{prod:cat[0].id,set:set,quant:'',imp:'',fact:false,diaCat:'Despeses',prov:'',dataPag:''};
   modal(mTitle(nou?'Nova compra':'Edita compra')+`
     <label>Producte</label><select id="oc_prod">${cat.map(p=>`<option value="${p.id}" ${p.id===c.prod?'selected':''}>${esc(p.nom)}</option>`).join('')}</select>
     <div class="row2">
@@ -1007,20 +1046,33 @@ function formOlivaCompra(c){
     </div>
     <label>Cost (€)</label><input id="oc_imp" class="num" inputmode="decimal" value="${c.imp??''}">
     <p class="muted" style="margin:6px 0">Preu calculat: <b id="oc_pkg">${pkg(c.imp,c.quant)}</b></p>
+    <label class="li-reclbl" style="margin:8px 0"><input type="checkbox" id="oc_fact" ${c.fact?'checked':''}> Generar factura d'aquesta compra</label>
+    <div id="oc_factbox" style="${c.fact?'':'display:none'}">
+      <label>Categoria al dietari</label>${diaCatSelect('oc_cat',c.diaCat)}
+      <div class="row2">
+        <div><label>Proveïdor</label><input id="oc_prov" list="dl_provs" value="${esc(c.prov||'')}"></div>
+        <div><label>Data pagament</label><input type="date" id="oc_dpag" value="${c.dataPag||olDissabte(c.set||set)}"></div>
+      </div>
+      <datalist id="dl_provs">${dlOpts(provList())}</datalist>
+    </div>
     <button class="primary" id="oc_desa">Desa</button>
     ${nou?'':'<button class="danger" id="oc_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     const calc=()=>{el.querySelector('#oc_pkg').textContent=pkg(el.querySelector('#oc_imp').value,el.querySelector('#oc_quant').value);};
     ['oc_quant','oc_imp'].forEach(id=>el.querySelector('#'+id).addEventListener('input',calc));
+    el.querySelector('#oc_fact').addEventListener('change',e=>{el.querySelector('#oc_factbox').style.display=e.target.checked?'':'none';});
     el.querySelector('#oc_desa').addEventListener('click',()=>{
       const setv=el.querySelector('#oc_set').value;if(!setv){alert('Falta la setmana.');return;}
       const obj={id:c.id||uid(),prod:el.querySelector('#oc_prod').value,set:mondayISO(parseISO(setv)),
-        quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value)};
+        quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value),
+        fact:el.querySelector('#oc_fact').checked,diaCat:el.querySelector('#oc_cat').value,
+        prov:el.querySelector('#oc_prov').value.trim(),dataPag:el.querySelector('#oc_dpag').value};
       if(c.id){const i=Y().olivesCompres.findIndex(x=>x.id===c.id);Y().olivesCompres[i]=obj;}else Y().olivesCompres.push(obj);
+      olivaSyncFactura(obj);
       save();tancaModal();go('compres',{tab:'olives',setOl:obj.set});
     });
     const del=el.querySelector('#oc_del');
-    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().olivesCompres=Y().olivesCompres.filter(x=>x.id!==c.id);save();tancaModal();render();}});
+    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().olivesCompres=Y().olivesCompres.filter(x=>x.id!==c.id);deleteFacturaSrc('oliva',c.id);save();tancaModal();render();}});
   });
 }
 function formSetmanaOlives(setISO){
@@ -1048,8 +1100,8 @@ function formSetmanaOlives(setISO){
       el.querySelectorAll('tr[data-prod]').forEach(tr=>{
         const prod=tr.dataset.prod,q=numOrNull(tr.querySelector('.oc_q').value),im=numOrNull(tr.querySelector('.oc_i').value);
         const ex=Y().olivesCompres.find(c=>c.set===set&&c.prod===prod);
-        if((q==null||q===0)&&(im==null||im===0)){if(ex)Y().olivesCompres=Y().olivesCompres.filter(c=>c!==ex);return;}
-        if(ex){ex.quant=q;ex.imp=im;}
+        if((q==null||q===0)&&(im==null||im===0)){if(ex){deleteFacturaSrc('oliva',ex.id);Y().olivesCompres=Y().olivesCompres.filter(c=>c!==ex);}return;}
+        if(ex){ex.quant=q;ex.imp=im;olivaSyncFactura(ex);}
         else Y().olivesCompres.push({id:uid(),prod:prod,set:set,quant:q,imp:im});
       });
       save();tancaModal();go('compres',{tab:'olives',setOl:set});
@@ -1074,7 +1126,7 @@ function vConserva(){
   return h;
 }
 function formConserva(r){
-  const nou=!r; r=r||{nom:'',unitats:'',costTotal:'',prov:'',data:''};
+  const nou=!r; r=r||{nom:'',unitats:'',costTotal:'',prov:'',data:'',diaCat:'Despeses'};
   modal(mTitle(nou?'Nova compra de conserva':'Edita compra')+`
     <label>Producte</label><input id="k_nom" list="dl_consNom" value="${esc(r.nom)}">
     <datalist id="dl_consNom">${dlOpts(distinctVals(Y().conserva,'nom'))}</datalist>
@@ -1087,7 +1139,9 @@ function formConserva(r){
       <div><label>Data</label><input type="date" id="k_data" value="${r.data||''}"></div>
     </div>
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
+    <label>Categoria al dietari</label>${diaCatSelect('k_cat',r.diaCat)}
     <p class="muted" id="k_calc" style="margin:6px 0"></p>
+    <p class="muted" style="margin:4px 0">Es crearà una factura lligada (import = cost amb IVA). Amb data, surt al dietari aquell dia i suma a la categoria triada.</p>
     <button class="primary" id="k_desa">Desa</button>
     ${nou?'':'<button class="danger" id="k_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
@@ -1097,13 +1151,14 @@ function formConserva(r){
     ['k_un','k_ct'].forEach(id=>el.querySelector('#'+id).addEventListener('input',kcalc));kcalc();
     el.querySelector('#k_desa').addEventListener('click',()=>{
       const obj={id:r.id||uid(),nom:el.querySelector('#k_nom').value.trim(),unitats:numOrNull(el.querySelector('#k_un').value),
-        costTotal:numOrNull(el.querySelector('#k_ct').value),prov:el.querySelector('#k_prov').value.trim(),data:el.querySelector('#k_data').value};
+        costTotal:numOrNull(el.querySelector('#k_ct').value),prov:el.querySelector('#k_prov').value.trim(),data:el.querySelector('#k_data').value,diaCat:el.querySelector('#k_cat').value};
       if(!obj.nom){alert('Falta el producte.');return;}
       if(r.id){const i=Y().conserva.findIndex(x=>x.id===r.id);Y().conserva[i]=obj;}else Y().conserva.push(obj);
+      syncFacturaSrc('conserva',obj.id,{imp:obj.costTotal,dataISO:obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:'Conserva'+(obj.nom?' '+obj.nom:'')});
       save();tancaModal();render();
     });
     const del=el.querySelector('#k_del');
-    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().conserva=Y().conserva.filter(x=>x.id!==r.id);save();tancaModal();render();}});
+    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().conserva=Y().conserva.filter(x=>x.id!==r.id);deleteFacturaSrc('conserva',r.id);save();tancaModal();render();}});
   });
 }
 function bindCompres(){
@@ -1181,7 +1236,7 @@ function exportaXLSX(){
   // Dietari diari
   const dd=[['Data','Efectiu','TPV','Recaptació','Despeses','Fp','FpL','Observacions']];
   Object.keys(Y().dies).sort().forEach(ds=>{const d=Y().dies[ds];
-    dd.push([ds,n0(d.ef),n0(d.tpv),r2(recDia(d,ds)),r2(dDesp(d)),r2(dFp(d)),r2(dFpl(d)),d.obs||'']);});
+    dd.push([ds,n0(d.ef),n0(d.tpv),r2(recDia(d,ds)),r2(dDesp(d,ds)),r2(dFp(d,ds)),r2(dFpl(d,ds)),d.obs||'']);});
   fullA(wb,dd,'Dietari');
   // Detall de línies (Fp/FpL/Despeses) per dia
   const ll=[['Data','Categoria','Import','Concepte','Recaptació']];
