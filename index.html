@@ -341,7 +341,11 @@ function dFp(d,ds){return (d?lineSum(d.fpLines):0)+factDiaBloc(ds,'fp');}
 function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl');}
 function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
-function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+num(d.tpv)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
+/* TPV: el net és l'ingrés real al banc (categoria TPV) d'aquell dia. Si encara no n'hi ha, s'usa el brut provisional. Comissió = brut − net */
+function tpvBancDia(ds){const c=ccCatByRole('tpv');if(!c||!ds)return 0;return Y().cc.filter(m=>m.data===ds&&m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.haber),0);}
+function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0);}
+function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:0;}
+function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+tpvNetDia(d,ds)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
 function totalsRang(isos){
   const t={ef:0,tpv:0,rec:0,desp:0,fp:0,fpl:0};
   for(const ds of isos){const d=dia(ds);
@@ -436,6 +440,7 @@ function vAvui(){
     <label for="f_obs">Observacions (talons, factures, ingressos al banc…)</label>
     <textarea id="f_obs">${esc(d.obs||'')}</textarea>
     <div class="recline"><span class="l">Recaptació</span><span class="v num" id="recVal">${eur0(recDia(d,ds))}</span></div>
+    <div class="muted" id="tpvInfo" style="margin-top:2px"></div>
     <button class="primary" id="desaDia">Desa el dia</button>
   </div>
   ${infoDiaHTML(ds)}
@@ -469,7 +474,8 @@ function bindAvui(){
   const syncLines=()=>{['fp','fpl','desp'].forEach(k=>{avuiLines[k]=readBlock(k);});};
   const renderBlock=key=>{const cap=key.charAt(0).toUpperCase()+key.slice(1);document.getElementById('blk'+cap).innerHTML=lineBlockHTML(key);};
   const recalc=()=>{
-    let r=num($('#f_ef').value)+num($('#f_tpv').value);
+    const tpvBrut=num($('#f_tpv').value), tpvBanc=tpvBancDia(ds0), tpvNet=tpvBanc>0?tpvBanc:tpvBrut;
+    let r=num($('#f_ef').value)+tpvNet;
     ['fp','fpl','desp'].forEach(key=>{let s=0;
       document.querySelectorAll('.lrow[data-k="'+key+'"]').forEach(row=>{
         const v=num(row.querySelector('.li-imp').value); s+=v;
@@ -477,6 +483,8 @@ function bindAvui(){
       const el=document.getElementById('sum_'+key); if(el)el.textContent=eur0(s);});
     r+=factDiaRec(ds0)+despCCDiaRec(ds0);
     $('#recVal').textContent=eur0(r);
+    const info=$('#tpvInfo');
+    if(info)info.textContent=tpvBanc>0?('TPV net del banc: '+eur0(tpvBanc)+' · comissió: '+eur0(tpvBrut-tpvBanc)):(tpvBrut?'TPV en brut (provisional, encara sense ingrés al banc)':'');
   };
   ['f_ef','f_tpv'].forEach(id=>$('#'+id).addEventListener('input',recalc));
   // Delegació d'esdeveniments al card (sobreviu als re-renders dels blocs)
@@ -532,7 +540,7 @@ function bindAvui(){
   if(setm){
     const t=totalsRang(setm);
     $('#resumSetmanaAvui').innerHTML='<h3>Setmana ('+dataCA(setm[0])+' – '+dataCA(setm[setm.length-1])+')</h3>'+
-      kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)]]);
+      kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)]]);
   } else $('#resumSetmanaAvui').remove();
 }
 function kpiGrid(pars){return '<div class="kpis">'+pars.map(([l,v])=>'<div class="kpi"><div class="l">'+l+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
@@ -850,6 +858,8 @@ function vCompres(){
   return h;
 }
 function trimestre(isoStr){return isoStr?Math.floor((parseInt(isoStr.slice(5,7))-1)/3)+1:null;}
+function quatri(iso){return iso?Math.floor((parseInt(iso.slice(5,7))-1)/4):null;}
+const QUATRIN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
 /* «Base de dades» de productes i proveïdors: valors únics ja introduïts, per triar-los de nou */
 function distinctVals(arr,key){return [...new Set((arr||[]).map(x=>String(x[key]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
 function dlOpts(vals){return vals.map(v=>`<option value="${esc(v)}"></option>`).join('');}
@@ -865,7 +875,7 @@ function vBacalla(){
   rs.forEach(r=>{
     const cost=num(r.kg)?num(r.imp)/num(r.kg):0;
     const ben=cost&&r.pv!=null?100*(num(r.pv)-cost)/cost:null;
-    const q=trimestre(r.dataPag); if(q){tq[q]=tq[q]||{kg:0,imp:0};tq[q].kg+=num(r.kg);tq[q].imp+=num(r.imp);}
+    const q=quatri(r.dataPag); if(q!=null){tq[q]=tq[q]||{kg:0,imp:0};tq[q].kg+=num(r.kg);tq[q].imp+=num(r.imp);}
     h+=`<tr class="clickable" data-bac="${r.id}"><td>${esc(r.tipus)}</td><td class="n">${num(r.kg).toLocaleString('ca-ES')}</td>
       <td class="n">${eur0(num(r.imp))}</td><td class="n">${cost?cost.toFixed(2):'—'}</td>
       <td class="n">${r.pv!=null?num(r.pv).toFixed(2):'—'}</td>
@@ -873,9 +883,9 @@ function vBacalla(){
       <td>${r.dataPag?dataCA(r.dataPag):'—'}</td><td>${esc(r.prov||'')}</td></tr>`;
   });
   h+='</tbody></table></div></div>';
-  h+='<div class="card"><h3>Subtotals per trimestre</h3><table><thead><tr><th>Trim.</th><th class="n">Kg</th><th class="n">Import</th></tr></thead><tbody>';
+  h+='<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">Kg</th><th class="n">Import</th></tr></thead><tbody>';
   let tkg=0,timp=0;
-  [1,2,3,4].forEach(q=>{if(tq[q]){tkg+=tq[q].kg;timp+=tq[q].imp;h+=`<tr><td>T${q}</td><td class="n">${tq[q].kg.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q].imp)}</td></tr>`;}});
+  [0,1,2].forEach(q=>{if(tq[q]){tkg+=tq[q].kg;timp+=tq[q].imp;h+=`<tr><td>${QUATRIN[q]}</td><td class="n">${tq[q].kg.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q].imp)}</td></tr>`;}});
   h+=`<tr class="total"><td>Any</td><td class="n">${tkg.toLocaleString('ca-ES')}</td><td class="n">${eur0(timp)}</td></tr></tbody></table></div>`;
   return h;
 }
@@ -1111,18 +1121,20 @@ function formSetmanaOlives(setISO){
 /* --- Conserva --- */
 function vConserva(){
   const rs=Y().conserva.slice().sort((a,b)=>(a.data||'')<(b.data||'')?-1:1);
-  const f=Y().factorConserva||1.114;
-  let h='<div class="muted" style="margin-bottom:8px">Factor d\'impostos: ×'+f+' (IVA 10% + RE 1,4%). Es canvia a Configuració.</div>';
-  if(!rs.length)return h+'<div class="card muted">Cap compra de conserva. Afegeix-ne amb el botó +.</div>';
-  let tot=0,totB=0;
-  h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">Unit.</th><th class="n">€/unit.</th><th class="n">Total (IVA)</th><th class="n">Base</th><th>Proveïdor</th><th>Data</th></tr></thead><tbody>';
+  if(!rs.length)return '<div class="card muted">Cap compra de conserva. Afegeix-ne amb el botó +.</div>';
+  let tot=0; const tq={};
+  let h='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">Unit.</th><th class="n">€/unit.</th><th class="n">Cost total</th><th>Proveïdor</th><th>Data</th></tr></thead><tbody>';
   rs.forEach(r=>{
-    const pu=num(r.unitats)?num(r.costTotal)/num(r.unitats):0;
-    const base=num(r.costTotal)/f; tot+=num(r.costTotal); totB+=base;
+    const pu=num(r.unitats)?num(r.costTotal)/num(r.unitats):0; tot+=num(r.costTotal);
+    const q=quatri(r.data); if(q!=null){tq[q]=tq[q]||{un:0,imp:0};tq[q].un+=num(r.unitats);tq[q].imp+=num(r.costTotal);}
     h+=`<tr class="clickable" data-cons="${r.id}"><td>${esc(r.nom)}</td><td class="n">${num(r.unitats).toLocaleString('ca-ES')}</td>
-      <td class="n">${pu?pu.toFixed(2):'—'}</td><td class="n">${eur0(num(r.costTotal))}</td><td class="n">${eur0(base)}</td>
+      <td class="n">${pu?pu.toFixed(2):'—'}</td><td class="n">${eur0(num(r.costTotal))}</td>
       <td>${esc(r.prov||'')}</td><td>${r.data?dataCA(r.data):'—'}</td></tr>`;});
-  h+=`<tr class="total"><td>Total</td><td></td><td></td><td class="n">${eur0(tot)}</td><td class="n">${eur0(totB)}</td><td></td><td></td></tr></tbody></table></div></div>`;
+  h+=`<tr class="total"><td>Total</td><td></td><td></td><td class="n">${eur0(tot)}</td><td></td><td></td></tr></tbody></table></div></div>`;
+  h+='<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">Unit.</th><th class="n">Import</th></tr></thead><tbody>';
+  let tun=0,timp=0;
+  [0,1,2].forEach(q=>{if(tq[q]){tun+=tq[q].un;timp+=tq[q].imp;h+=`<tr><td>${QUATRIN[q]}</td><td class="n">${tq[q].un.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q].imp)}</td></tr>`;}});
+  h+=`<tr class="total"><td>Any</td><td class="n">${tun.toLocaleString('ca-ES')}</td><td class="n">${eur0(timp)}</td></tr></tbody></table></div>`;
   return h;
 }
 function formConserva(r){
@@ -1132,7 +1144,7 @@ function formConserva(r){
     <datalist id="dl_consNom">${dlOpts(distinctVals(Y().conserva,'nom'))}</datalist>
     <div class="row2">
       <div><label>Unitats</label><input id="k_un" class="num" inputmode="decimal" value="${r.unitats??''}"></div>
-      <div><label>Cost total (amb IVA)</label><input id="k_ct" class="num" inputmode="decimal" value="${r.costTotal??''}"></div>
+      <div><label>Cost total</label><input id="k_ct" class="num" inputmode="decimal" value="${r.costTotal??''}"></div>
     </div>
     <div class="row2">
       <div><label>Proveïdor</label><input id="k_prov" list="dl_provs" value="${esc(r.prov||'')}"></div>
@@ -1141,13 +1153,12 @@ function formConserva(r){
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
     <label>Categoria al dietari</label>${diaCatSelect('k_cat',r.diaCat)}
     <p class="muted" id="k_calc" style="margin:6px 0"></p>
-    <p class="muted" style="margin:4px 0">Es crearà una factura lligada (import = cost amb IVA). Amb data, surt al dietari aquell dia i suma a la categoria triada.</p>
+    <p class="muted" style="margin:4px 0">Es crearà una factura lligada amb aquest cost. Amb data, surt al dietari aquell dia i suma a la categoria triada.</p>
     <button class="primary" id="k_desa">Desa</button>
     ${nou?'':'<button class="danger" id="k_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
-    const fK=Y().factorConserva||1.114;
     const kcalc=()=>{const un=num(el.querySelector('#k_un').value),ct=num(el.querySelector('#k_ct').value);
-      el.querySelector('#k_calc').textContent=ct?('Preu: '+(un?eur(r2(ct/un))+'/unitat':'—')+' · Base sense IVA: '+eur0(ct/fK)):'';};
+      el.querySelector('#k_calc').textContent=(ct&&un)?('Preu: '+eur(r2(ct/un))+'/unitat'):'';};
     ['k_un','k_ct'].forEach(id=>el.querySelector('#'+id).addEventListener('input',kcalc));kcalc();
     el.querySelector('#k_desa').addEventListener('click',()=>{
       const obj={id:r.id||uid(),nom:el.querySelector('#k_nom').value.trim(),unitats:numOrNull(el.querySelector('#k_un').value),
@@ -1281,9 +1292,8 @@ function exportaXLSX(){
     od.push([c.set,p?p.tipus:'',p?p.nom:'?',n0(c.quant),n0(c.imp),num(c.quant)?r2(num(c.imp)/num(c.quant)):'']);});
   fullA(wb,od,'Olives setmanal');
   // Conserva
-  const f=Y().factorConserva||1.114;
-  const kk=[['Producte','Unitats','Preu unitari','Cost total (IVA)','Cost base','Proveïdor','Data'],
-    ...Y().conserva.map(r=>[r.nom,n0(r.unitats),num(r.unitats)?r2(num(r.costTotal)/num(r.unitats)):'',n0(r.costTotal),r2(num(r.costTotal)/f),r.prov||'',r.data||''])];
+  const kk=[['Producte','Unitats','Preu unitari','Cost total','Proveïdor','Data'],
+    ...Y().conserva.map(r=>[r.nom,n0(r.unitats),num(r.unitats)?r2(num(r.costTotal)/num(r.unitats)):'',n0(r.costTotal),r.prov||'',r.data||''])];
   fullA(wb,kk,'Conserva');
   XLSX.writeFile(wb,'Dietari_'+any+'.xlsx');
 }
@@ -1333,12 +1343,6 @@ function vConfig(){
     <button class="primary" id="cf_crea">Crea l'any</button>
   </div>
   <div class="card">
-    <h3>Conserva</h3>
-    <label>Factor d'impostos (IVA + recàrrec d'equivalència)</label>
-    <input id="cf_factor" class="num" inputmode="decimal" value="${Y().factorConserva||1.114}">
-    <button class="primary" id="cf_desaF">Desa el factor</button>
-  </div>
-  <div class="card">
     <h3>Olives</h3>
     <p class="muted">Carrega els 19 tipus estàndard en ordre i esborra les compres d'olives d'aquest any. Útil per començar de zero.</p>
     <button class="danger" id="cf_initOl" style="width:100%">Inicialitza olives (esborra compres + carrega tipus)</button>
@@ -1378,11 +1382,6 @@ function bindConfig(){
     nou.olivesCat=JSON.parse(JSON.stringify(Y().olivesCat||[]));
     nou.factorConserva=Y().factorConserva;
     S.years[a]=nou;S.activeYear=a;save();pintaAnys();go('avui');
-  });
-  $('#cf_desaF').addEventListener('click',()=>{
-    const f=num($('#cf_factor').value);
-    if(f<=0){alert('Factor no vàlid.');return;}
-    Y().factorConserva=f;save();alert('Factor desat.');
   });
   $('#cf_initOl').addEventListener('click',()=>{
     if(!confirm('Carregar els 19 tipus estàndard i ESBORRAR les compres d\'olives de '+S.activeYear+'?'))return;
