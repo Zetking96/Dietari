@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/29441517/README.md)
 # Dietari · Gestió de la parada
 
 Aplicació web per a la gestió comptable diària d'un parador de bacallà i conserves (Mercat de Provençals, Barcelona — marca *Pesca Salada Gil*).
