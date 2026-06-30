@@ -342,7 +342,7 @@ function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl');}
 function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
 /* TPV: el net és l'ingrés real al banc (categoria TPV) d'aquell dia. Si encara no n'hi ha, s'usa el brut provisional. Comissió = brut − net */
-function tpvBancDia(ds){const c=ccCatByRole('tpv');if(!c||!ds)return 0;return Y().cc.filter(m=>m.data===ds&&m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.haber),0);}
+function tpvBancDia(ds){const c=ccCatByRole('tpv');if(!c||!ds)return 0;return Y().cc.filter(m=>m.catId===c.id&&m.estat!=='Cancelat'&&(m.tpvData||m.data)===ds).reduce((s,m)=>s+num(m.haber),0);}
 function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0);}
 function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:0;}
 function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+tpvNetDia(d,ds)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
@@ -538,9 +538,9 @@ function bindAvui(){
   // resum de la setmana en curs (Dl–Ds del dilluns d'aquest dia)
   const setm=setmanaDe(ds0);
   if(setm){
-    const t=totalsRang(setm);
+    const t=totalsRang(setm), dccSet=setm.reduce((s,ds)=>s+despCCDia(ds).reduce((a,m)=>a+num(m.debe),0),0);
     $('#resumSetmanaAvui').innerHTML='<h3>Setmana ('+dataCA(setm[0])+' – '+dataCA(setm[setm.length-1])+')</h3>'+
-      kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)]]);
+      kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)],['Despeses c/c',eur0(dccSet)]]);
   } else $('#resumSetmanaAvui').remove();
 }
 function kpiGrid(pars){return '<div class="kpis">'+pars.map(([l,v])=>'<div class="kpi"><div class="l">'+l+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
@@ -600,7 +600,7 @@ function vTancament(){
   const k=sat;
   const t=totalsRang(w), dcc=w.reduce((s,ds)=>s+despCCDia(ds).reduce((a,m)=>a+num(m.debe),0),0);
   const tc=Y().tanc[k]||{};
-  const suggerit=w.reduce((s,ds)=>{const c=ccCatByRole('tpv');return s+(c?Y().cc.filter(m=>m.data===ds&&m.catId===c.id&&m.estat!=='Cancelat').reduce((a,m)=>a+num(m.haber),0):0);},0);
+  const suggerit=w.reduce((s,ds)=>s+tpvBancDia(ds),0);
   const ingres=tc.ingresTpv!=null?tc.ingresTpv:(suggerit||'');
   return `<h2>Tancament setmana</h2>
   <div class="card"><div class="muted">Dl–Ds · ${dataCAL(w[0])} → ${dataCAL(w[5])}</div></div>
@@ -709,6 +709,11 @@ function formCC(m){
       <div><label>Estat</label><select id="c_est">${CC_ESTATS.map(c=>`<option ${c===m.estat?'selected':''}>${c}</option>`).join('')}</select></div>
     </div>
     <button id="c_addcat" class="small" style="margin:-4px 0 8px">+ categoria nova</button>
+    <div id="c_tpvbox" style="${m.catId===(ccCatByRole('tpv')||{}).id?'':'display:none'}">
+      <label>Dia de la venda al dietari (si l'ingrés arriba amb retard)</label>
+      <input type="date" id="c_tpvdata" value="${m.tpvData||''}">
+      <p class="muted" style="margin:4px 0">Deixa-ho buit si l'ingrés és del mateix dia. Si el banc diposita amb retard, posa aquí la data de la venda perquè la recaptació quadri.</p>
+    </div>
     <div class="row2">
       <div><label>Deure (surt)</label><input id="c_debe" class="num" inputmode="decimal" value="${m.debe??''}"></div>
       <div><label>Haver (entra)</label><input id="c_haber" class="num" inputmode="decimal" value="${m.haber??''}"></div>
@@ -717,6 +722,8 @@ function formCC(m){
     <button class="primary" id="c_desa">Desa</button>
     ${nou?'':'<button class="danger" id="c_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
+    const tpvId=(ccCatByRole('tpv')||{}).id;
+    el.querySelector('#c_cat').addEventListener('change',e=>{el.querySelector('#c_tpvbox').style.display=e.target.value===tpvId?'':'none';});
     el.querySelector('#c_addcat').addEventListener('click',()=>{
       const nom=(prompt('Nom de la nova categoria:')||'').trim();
       if(!nom)return;
@@ -726,10 +733,11 @@ function formCC(m){
     el.querySelector('#c_desa').addEventListener('click',()=>{
       const data=el.querySelector('#c_data').value;
       if(!data){alert('Falta la data.');return;}
+      const catId=el.querySelector('#c_cat').value;
       const obj={id:m.id||uid(),data,concepte:el.querySelector('#c_conc').value.trim(),
-        catId:el.querySelector('#c_cat').value,estat:el.querySelector('#c_est').value,
+        catId:catId,estat:el.querySelector('#c_est').value,
         debe:numOrNull(el.querySelector('#c_debe').value),haber:numOrNull(el.querySelector('#c_haber').value),
-        recDia:!!m.recDia,
+        recDia:!!m.recDia,tpvData:catId===tpvId?(el.querySelector('#c_tpvdata').value||''):'',
         obs:el.querySelector('#c_obs').value.trim()};
       if(m.id){const i=Y().cc.findIndex(x=>x.id===m.id);Y().cc[i]=obj;}else Y().cc.push(obj);
       save();tancaModal();go('cc',{mes:mesDeIso(data)});
