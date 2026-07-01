@@ -1215,8 +1215,8 @@ function vTresoreria(){
 
 /* ================= VISTA: RESUM ANUAL ================= */
 function vResumAnual(){
-  const tm=[],dcc=[];
-  for(let m=0;m<12;m++){tm.push(totalsMes(m));dcc.push(despCCMes(m));}
+  const tm=[],dcc=[],comm=[];
+  for(let m=0;m<12;m++){tm.push(totalsMes(m));dcc.push(despCCMes(m));comm.push(comissioTpvRang(isosDelMes(m)));}
   // Despeses inclou despeses c/c; Fp inclou FpL (sumats)
   const val=(m,k)=> k==='desp'?(tm[m].desp+dcc[m]) : k==='fp'?(tm[m].fp+tm[m].fpl) : tm[m][k];
   const files=[['Efectiu','ef'],['TPV','tpv'],['Recaptació','rec'],['Despeses (+ c/c)','desp'],['Fp + FpL','fp']];
@@ -1228,6 +1228,9 @@ function vResumAnual(){
     for(let m=0;m<12;m++){const v=val(m,k);t+=v;h+='<td class="n">'+(v?eur0(v):'')+'</td>';}
     h+='<td class="n"><b>'+eur0(t)+'</b></td></tr>';
   });
+  let tcom=0; h+='<tr><td>Comissió TPV</td>';
+  for(let m=0;m<12;m++){tcom+=comm[m];h+='<td class="n">'+(comm[m]?eur0(comm[m]):'')+'</td>';}
+  h+='<td class="n"><b>'+eur0(tcom)+'</b></td></tr>';
   h+='</tbody></table></div></div>';
   // quatrimestres (4 mesos): Q1 gen–abr, Q2 mai–ago, Q3 set–des
   const KS=['ef','tpv','rec','desp','fp'], KN=['Efectiu','TPV','Recaptació','Despeses (+ c/c)','Fp + FpL'];
