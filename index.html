@@ -340,8 +340,10 @@ function despCCDiaRec(ds){return despCCDia(ds).filter(m=>m.recDia).reduce((s,m)=
 /* ----- Línies del dia (Fp/FpL/Despeses): cada línia {imp, c(concepte), rec(bool)} ----- */
 function lineSum(a){return (a||[]).reduce((s,l)=>s+num(l.imp),0);}        // suma imports
 function lineRec(a){return (a||[]).reduce((s,l)=>s+(l.rec?num(l.imp):0),0);} // suma només línies marcades rec
-function dFp(d,ds){return (d?lineSum(d.fpLines):0)+factDiaBloc(ds,'fp');}
-function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl');}
+/* Olives marcades Fp/FpL sumen al dietari, atribuïdes al dissabte de la seva setmana */
+function olivesDiaBloc(ds,bloc){return ds?(Y().olivesCompres||[]).filter(c=>c.bloc===bloc&&c.set&&olDissabte(c.set)===ds).reduce((s,c)=>s+num(c.imp),0):0;}
+function dFp(d,ds){return (d?lineSum(d.fpLines):0)+factDiaBloc(ds,'fp')+olivesDiaBloc(ds,'fp');}
+function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl')+olivesDiaBloc(ds,'fpl');}
 function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
 /* TPV: el net és l'ingrés real al banc (categoria TPV) d'aquell dia. Si encara no n'hi ha, s'usa el brut provisional. Comissió = brut − net */
@@ -669,6 +671,7 @@ function migraCompres(){
   Object.values(S.years||{}).forEach(y=>{
     (y.bacalla||[]).forEach(r=>{if(!r.productes){r.productes=[{producte:r.tipus||'',qty:r.kg,imp:r.imp,pv:r.pv}];if(r.dataPag&&!r.data)r.data=r.dataPag;delete r.tipus;delete r.kg;delete r.imp;delete r.pv;delete r.dataPag;}});
     (y.conserva||[]).forEach(r=>{if(!r.productes){r.productes=[{producte:r.nom||'',qty:r.unitats,imp:r.costTotal,pv:r.pv}];delete r.nom;delete r.unitats;delete r.costTotal;}});
+    if(y.factures)y.factures=y.factures.filter(f=>!(f.auto&&f.srcType==='oliva')); // les olives ja no generen factura
   });
 }
 /* Migra dies de valor únic (fp/fpl/desp + fpRec/fplRec) a línies múltiples. Idempotent. */
@@ -965,7 +968,7 @@ function prodResumHTML(type,nm){
 function obreProdResum(type,nm){modal(mTitle(nm)+prodResumHTML(type,nm));}
 function formCompra(type,r){
   const cfg=COMPRA_CFG[type]; const nou=!r;
-  r=r||{prov:'',data:'',diaCat:'Despeses',productes:[]};
+  r=r||{prov:'',data:'',diaCat:'FpL',productes:[]};
   const prods=(r.productes&&r.productes.length)?r.productes.map(p=>({...p})):[{producte:'',qty:'',imp:'',pv:''}];
   const dlId='dl_prod_'+type;
   const prowHTML=p=>`<div class="prow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
@@ -1129,16 +1132,11 @@ function formOlivaCat(p){
   });
 }
 function olDissabte(setISO){const d=parseISO(setISO);d.setDate(d.getDate()+5);return isoD(d);}
-function olivaSyncFactura(o){
-  if(o.fact){const p=olCat().find(x=>x.id===o.prod);
-    syncFacturaSrc('oliva',o.id,{imp:o.imp,dataISO:o.dataPag,categoria:o.diaCat,empresa:o.prov,concepte:'Olives'+(p?' '+p.nom:'')});}
-  else deleteFacturaSrc('oliva',o.id);
-}
 function formOlivaCompra(c){
   const cat=olCat();
   if(!cat.length){formOlivaCat();return;}
   const nou=!c; const set=ctx.setOl||defaultSet();
-  c=c||{prod:cat[0].id,set:set,quant:'',imp:'',fact:false,diaCat:'Despeses',prov:'',dataPag:''};
+  c=c||{prod:cat[0].id,set:set,quant:'',imp:''};
   modal(mTitle(nou?'Nova compra':'Edita compra')+`
     <label>Producte</label><select id="oc_prod">${cat.map(p=>`<option value="${p.id}" ${p.id===c.prod?'selected':''}>${esc(p.nom)}</option>`).join('')}</select>
     <div class="row2">
@@ -1147,33 +1145,21 @@ function formOlivaCompra(c){
     </div>
     <label>Cost (€)</label><input id="oc_imp" class="num" inputmode="decimal" value="${c.imp??''}">
     <p class="muted" style="margin:6px 0">Preu calculat: <b id="oc_pkg">${pkg(c.imp,c.quant)}</b></p>
-    <label class="li-reclbl" style="margin:8px 0"><input type="checkbox" id="oc_fact" ${c.fact?'checked':''}> Generar factura d'aquesta compra</label>
-    <div id="oc_factbox" style="${c.fact?'':'display:none'}">
-      <label>Categoria al dietari</label>${diaCatSelect('oc_cat',c.diaCat)}
-      <div class="row2">
-        <div><label>Proveïdor</label><input id="oc_prov" list="dl_provs" value="${esc(c.prov||'')}"></div>
-        <div><label>Data pagament</label><input type="date" id="oc_dpag" value="${c.dataPag||olDissabte(c.set||set)}"></div>
-      </div>
-      <datalist id="dl_provs">${dlOpts(provList())}</datalist>
-    </div>
+    <p class="muted" style="margin:4px 0">La categoria Fp/FpL de cada oliva es marca a la graella setmanal.</p>
     <button class="primary" id="oc_desa">Desa</button>
     ${nou?'':'<button class="danger" id="oc_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     const calc=()=>{el.querySelector('#oc_pkg').textContent=pkg(el.querySelector('#oc_imp').value,el.querySelector('#oc_quant').value);};
     ['oc_quant','oc_imp'].forEach(id=>el.querySelector('#'+id).addEventListener('input',calc));
-    el.querySelector('#oc_fact').addEventListener('change',e=>{el.querySelector('#oc_factbox').style.display=e.target.checked?'':'none';});
     el.querySelector('#oc_desa').addEventListener('click',()=>{
       const setv=el.querySelector('#oc_set').value;if(!setv){alert('Falta la setmana.');return;}
       const obj={id:c.id||uid(),prod:el.querySelector('#oc_prod').value,set:mondayISO(parseISO(setv)),
-        quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value),
-        fact:el.querySelector('#oc_fact').checked,diaCat:el.querySelector('#oc_cat').value,
-        prov:el.querySelector('#oc_prov').value.trim(),dataPag:el.querySelector('#oc_dpag').value};
+        quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value),bloc:c.bloc||''};
       if(c.id){const i=Y().olivesCompres.findIndex(x=>x.id===c.id);Y().olivesCompres[i]=obj;}else Y().olivesCompres.push(obj);
-      olivaSyncFactura(obj);
       save();tancaModal();go('compres',{tab:'olives',setOl:obj.set});
     });
     const del=el.querySelector('#oc_del');
-    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().olivesCompres=Y().olivesCompres.filter(x=>x.id!==c.id);deleteFacturaSrc('oliva',c.id);save();tancaModal();render();}});
+    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar?')){Y().olivesCompres=Y().olivesCompres.filter(x=>x.id!==c.id);save();tancaModal();render();}});
   });
 }
 function formSetmanaOlives(setISO){
@@ -1182,14 +1168,16 @@ function formSetmanaOlives(setISO){
   const set=setISO||ctx.setOl||defaultSet();
   const recs=Y().olivesCompres.filter(c=>c.set===set);
   const cur={};recs.forEach(c=>cur[c.prod]=c);
+  const blocSel=b=>`<select class="oc_bloc" style="width:100%"><option value="">—</option><option value="fp" ${b==='fp'?'selected':''}>Fp</option><option value="fpl" ${b==='fpl'?'selected':''}>FpL</option></select>`;
   const rows=cat.map(p=>{const c=cur[p.id];
     return `<tr data-prod="${p.id}"><td style="padding:3px 4px">${esc(p.nom)}<br><span class="muted">${esc(p.tipus)}</span></td>
       <td style="padding:3px 2px"><input class="num oc_q" inputmode="decimal" value="${c?(c.quant??''):''}" style="width:100%"></td>
       <td style="padding:3px 2px"><input class="num oc_i" inputmode="decimal" value="${c?(c.imp??''):''}" style="width:100%"></td>
-      <td class="n oc_pkg" style="padding:3px 4px;white-space:nowrap">${c?pkg(c.imp,c.quant):'—'}</td></tr>`;}).join('');
+      <td class="n oc_pkg" style="padding:3px 4px;white-space:nowrap">${c?pkg(c.imp,c.quant):'—'}</td>
+      <td style="padding:3px 2px">${blocSel(c?c.bloc:'')}</td></tr>`;}).join('');
   modal(mTitle('Setmana '+olSetLabel(set))+`
-    <p class="muted">Per cada tipus, posa la <b>quantitat</b> i el <b>cost</b> d'aquesta setmana. El €/kg es calcula sol.</p>
-    <div class="scrollx" style="max-height:55vh;overflow-y:auto"><table style="font-size:.82rem"><thead><tr><th style="text-align:left">Tipus</th><th class="n">Quant.</th><th class="n">Cost €</th><th class="n">€/kg</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="muted">Per cada tipus, posa la <b>quantitat</b> i el <b>cost</b>. Marca <b>Fp/FpL</b> perquè l'import sumi a Fp o FpL de la setmana al dietari.</p>
+    <div class="scrollx" style="max-height:55vh;overflow-y:auto"><table style="font-size:.82rem"><thead><tr><th style="text-align:left">Tipus</th><th class="n">Quant.</th><th class="n">Cost €</th><th class="n">€/kg</th><th class="n">Fp/FpL</th></tr></thead><tbody>${rows}</tbody></table></div>
     <button class="primary" id="se_desa" style="margin-top:10px;width:100%">Desa la setmana</button>
   `,el=>{
     el.querySelectorAll('tr[data-prod]').forEach(tr=>{
@@ -1199,11 +1187,11 @@ function formSetmanaOlives(setISO){
     });
     el.querySelector('#se_desa').addEventListener('click',()=>{
       el.querySelectorAll('tr[data-prod]').forEach(tr=>{
-        const prod=tr.dataset.prod,q=numOrNull(tr.querySelector('.oc_q').value),im=numOrNull(tr.querySelector('.oc_i').value);
+        const prod=tr.dataset.prod,q=numOrNull(tr.querySelector('.oc_q').value),im=numOrNull(tr.querySelector('.oc_i').value),bloc=tr.querySelector('.oc_bloc').value;
         const ex=Y().olivesCompres.find(c=>c.set===set&&c.prod===prod);
-        if((q==null||q===0)&&(im==null||im===0)){if(ex){deleteFacturaSrc('oliva',ex.id);Y().olivesCompres=Y().olivesCompres.filter(c=>c!==ex);}return;}
-        if(ex){ex.quant=q;ex.imp=im;olivaSyncFactura(ex);}
-        else Y().olivesCompres.push({id:uid(),prod:prod,set:set,quant:q,imp:im});
+        if((q==null||q===0)&&(im==null||im===0)){if(ex)Y().olivesCompres=Y().olivesCompres.filter(c=>c!==ex);return;}
+        if(ex){ex.quant=q;ex.imp=im;ex.bloc=bloc;}
+        else Y().olivesCompres.push({id:uid(),prod:prod,set:set,quant:q,imp:im,bloc:bloc});
       });
       save();tancaModal();go('compres',{tab:'olives',setOl:set});
     });
