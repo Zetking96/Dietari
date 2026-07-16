@@ -789,7 +789,7 @@ function vFactures(){
   if(!fs.length)h+='<div class="card muted">Cap factura amb aquest filtre.</div>';
   else h+='<div class="card tight">'+fs.map(f=>`
     <div class="item" data-fac="${f.id}"><div>
-      <div class="t">#${f.num??'—'} · ${esc(f.empresa||'(sense proveïdor)')}${f.auto?' <span class="muted" style="font-weight:400">· compra</span>':''}</div>
+      <div class="t">#${f.num??'—'} · ${f.empresa?`<span style="${PLNK}" data-provresum="${esc(f.empresa)}">${esc(f.empresa)}</span>`:'(sense proveïdor)'}${f.auto?' <span class="muted" style="font-weight:400">· compra</span>':''}</div>
       <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):''}</div>
     </div><div style="text-align:right"><div class="imp num">${eur(num(f.imp))}</div><span class="chip ${f.estat.toLowerCase()}">${f.estat}</span></div></div>`).join('')+'</div>';
   // vincles per taló
@@ -817,6 +817,7 @@ function bindFactures(){
     const f=Y().factures.find(x=>x.id===el.dataset.fac);
     if(f&&f.auto)obreFacturaSrc(f);else formFactura(f);
   }));
+  bindResumLinks(document);
 }
 let refTimer=null;
 function refrescaSuau(){clearTimeout(refTimer);refTimer=setTimeout(()=>{const q=$('#f_q');const pos=q.selectionStart;render();const q2=$('#f_q');q2.focus();q2.setSelectionRange(pos,pos);},250);}
@@ -918,7 +919,7 @@ function vCompra(type){
     else invs.forEach(r=>{
       h+=`<div class="card tight">
         <div class="item clickable" data-editinv="${type}|${r.id}" style="padding:2px 0 6px">
-          <div><div class="t">${esc(r.prov||'(sense proveïdor)')}</div><div class="s">${r.data?dataCA(r.data):'sense data'} · ${(r.productes||[]).length} producte(s)</div></div>
+          <div><div class="t">${r.prov?`<span style="${PLNK}" data-provresum="${esc(r.prov)}">${esc(r.prov)}</span>`:'(sense proveïdor)'}</div><div class="s">${r.data?dataCA(r.data):'sense data'} · ${(r.productes||[]).length} producte(s)</div></div>
           <div class="imp num">${eur0(compraTotal(r))}</div></div>
         <div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th><th class="n">Venda</th><th class="n">% Ben.</th></tr></thead><tbody>`;
       (r.productes||[]).forEach(p=>{const qty=num(p.qty),imp=num(p.imp),cost=qty?imp/qty:0,ben=cost&&p.pv!=null?100*(num(p.pv)-cost)/cost:null;
@@ -964,11 +965,51 @@ function prodResumHTML(type,nm){
   [0,1,2].forEach(qn=>{if(tq[qn])h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td></tr>`;});
   h+='</tbody></table>';
   h+=`<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Proveïdor</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
-  ls.forEach(p=>{const c=p.qty?p.imp/p.qty:0;h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${esc(p.prov||'')}</td><td class="n">${p.qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
+  ls.forEach(p=>{const c=p.qty?p.imp/p.qty:0;h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${p.prov?`<span style="${PLNK}" data-provresum="${esc(p.prov)}">${esc(p.prov)}</span>`:''}</td><td class="n">${p.qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
   h+='</tbody></table></div>';
   return h;
 }
-function obreProdResum(type,nm){modal(mTitle(nm)+prodResumHTML(type,nm));}
+/* Enllaços de resum (producte, proveïdor, oliva) — es poden fer servir a vistes i dins de modals */
+function bindResumLinks(el){
+  el.querySelectorAll('[data-prodresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();const s=x.dataset.prodresum,i=s.indexOf('|');obreProdResum(s.slice(0,i),s.slice(i+1));}));
+  el.querySelectorAll('[data-provresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();obreProvResum(x.dataset.provresum);}));
+  el.querySelectorAll('[data-olresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();obreOlivaResum(x.dataset.olresum);}));
+}
+function obreProdResum(type,nm){modal(mTitle(nm)+prodResumHTML(type,nm),el=>bindResumLinks(el));}
+/* Resum d'un proveïdor: totes les seves factures (les de compres hi són via la factura lligada) */
+function provResumHTML(nm){
+  const low=nm.trim().toLowerCase();
+  const fs=Y().factures.filter(f=>(f.empresa||'').trim().toLowerCase()===low).sort((a,b)=>(a.dataPagISO||'')<(b.dataPagISO||'')?1:-1);
+  const tot=fs.reduce((s,f)=>s+num(f.imp),0);
+  const pend=fs.filter(f=>f.estat==='Pendent').reduce((s,f)=>s+num(f.imp),0);
+  let h=`<div class="recline"><span class="l">Total facturat</span><span class="v num">${eur0(tot)} (${fs.length} fact.)</span></div>`;
+  h+=`<div class="recline"><span class="l">Pendent de pagar</span><span class="v num">${eur0(pend)}</span></div>`;
+  const tq={};fs.forEach(f=>{const qn=quatri(f.dataPagISO);if(qn!=null){tq[qn]=(tq[qn]||0)+num(f.imp);}});
+  h+='<h3>Pagat per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">Import</th></tr></thead><tbody>';
+  [0,1,2].forEach(qn=>{if(tq[qn])h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${eur0(tq[qn])}</td></tr>`;});
+  h+='</tbody></table>';
+  h+='<h3>Totes les factures</h3><div class="scrollx"><table><thead><tr><th>Núm.</th><th>Concepte</th><th class="n">Import</th><th>Estat</th><th>Data</th></tr></thead><tbody>';
+  fs.forEach(f=>{h+=`<tr><td>#${f.num??'—'}</td><td>${esc(f.concepte||'')}</td><td class="n">${eur0(num(f.imp))}</td><td><span class="chip ${(f.estat||'').toLowerCase()}">${f.estat||''}</span></td><td>${f.dataPagISO?dataCA(f.dataPagISO):'—'}</td></tr>`;});
+  h+='</tbody></table></div>';
+  return h;
+}
+function obreProvResum(nm){modal(mTitle(nm)+provResumHTML(nm),el=>bindResumLinks(el));}
+/* Resum d'una oliva del catàleg: totes les seves compres setmanals */
+function olivaResumHTML(prodId){
+  const ls=(Y().olivesCompres||[]).filter(c=>c.prod===prodId).sort((a,b)=>(a.set||'')<(b.set||'')?1:-1);
+  const q=ls.reduce((s,c)=>s+num(c.quant),0), im=ls.reduce((s,c)=>s+num(c.imp),0);
+  let h=`<div class="recline"><span class="l">Total comprat</span><span class="v num">${q.toLocaleString('ca-ES')} · ${eur0(im)}</span></div>`;
+  h+=`<div class="recline"><span class="l">Cost mitjà</span><span class="v num">${q?(im/q).toFixed(2)+' €/kg':'—'}</span></div>`;
+  const tq={};ls.forEach(c=>{if(!c.set)return;const qn=Math.floor(olMes(c.set)/4);tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=num(c.quant);tq[qn].imp+=num(c.imp);});
+  h+='<h3>Per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">Quant.</th><th class="n">Import</th></tr></thead><tbody>';
+  [0,1,2].forEach(qn=>{if(tq[qn])h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td></tr>`;});
+  h+='</tbody></table>';
+  h+='<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Setmana</th><th class="n">Quant.</th><th class="n">Cost</th><th class="n">€/kg</th><th>Fp/FpL</th></tr></thead><tbody>';
+  ls.forEach(c=>{h+=`<tr><td>${c.set?olSetLabel(c.set):'—'}</td><td class="n">${num(c.quant).toLocaleString('ca-ES')}</td><td class="n">${eur0(num(c.imp))}</td><td class="n">${pkg(c.imp,c.quant)}</td><td>${c.bloc==='fp'?'Fp':c.bloc==='fpl'?'FpL':''}</td></tr>`;});
+  h+='</tbody></table></div>';
+  return h;
+}
+function obreOlivaResum(prodId){const p=Y().olivesCat.find(x=>x.id===prodId);modal(mTitle(p?p.nom:'Oliva')+olivaResumHTML(prodId),el=>bindResumLinks(el));}
 function formCompra(type,r){
   const cfg=COMPRA_CFG[type]; const nou=!r;
   r=r||{prov:'',data:'',diaCat:'FpL',productes:[]};
@@ -1069,7 +1110,7 @@ function vOlives(){
     let tw=0;
     h+='<div class="card tight"><table><thead><tr><th>Producte</th><th class="n">Quant.</th><th class="n">Cost</th><th class="n">€/kg</th></tr></thead><tbody>';
     cat.forEach(p=>{const c=wr.find(x=>x.prod===p.id);if(!c)return;tw+=num(c.imp);
-      h+=`<tr class="clickable" data-ol="${c.id}"><td>${esc(p.nom)} <span class="muted">${esc(p.tipus)}</span></td><td class="n">${num(c.quant).toLocaleString('ca-ES')}</td><td class="n">${eur0(num(c.imp))}</td><td class="n">${pkg(c.imp,c.quant)}</td></tr>`;});
+      h+=`<tr class="clickable" data-ol="${c.id}"><td><span style="${PLNK}" data-olresum="${p.id}">${esc(p.nom)}</span> <span class="muted">${esc(p.tipus)}</span></td><td class="n">${num(c.quant).toLocaleString('ca-ES')}</td><td class="n">${eur0(num(c.imp))}</td><td class="n">${pkg(c.imp,c.quant)}</td></tr>`;});
     h+=`<tr class="total"><td>Total setmana</td><td></td><td class="n">${eur0(tw)}</td><td></td></tr></tbody></table></div>`;
   }
   const mr=Y().olivesCompres.filter(c=>c.set&&olMes(c.set)===mes);
@@ -1080,7 +1121,7 @@ function vOlives(){
     h+='<table><thead><tr><th>Producte</th><th class="n">Quant.</th><th class="n">Cost</th><th class="n">€/kg</th></tr></thead><tbody>';
     cat.forEach(p=>{const recs=mr.filter(x=>x.prod===p.id);if(!recs.length)return;
       const q=recs.reduce((s,x)=>s+num(x.quant),0),im=recs.reduce((s,x)=>s+num(x.imp),0);tmq+=q;tmi+=im;
-      h+=`<tr><td>${esc(p.nom)}</td><td class="n">${q.toLocaleString('ca-ES')}</td><td class="n">${eur0(im)}</td><td class="n">${pkg(im,q)}</td></tr>`;});
+      h+=`<tr><td><span style="${PLNK}" data-olresum="${p.id}">${esc(p.nom)}</span></td><td class="n">${q.toLocaleString('ca-ES')}</td><td class="n">${eur0(im)}</td><td class="n">${pkg(im,q)}</td></tr>`;});
     h+=`<tr class="total"><td>Total mes</td><td class="n">${tmq.toLocaleString('ca-ES')}</td><td class="n">${eur0(tmi)}</td><td class="n">${pkg(tmi,tmq)}</td></tr></tbody></table>`;
   }
   h+='</div>';
@@ -1204,7 +1245,7 @@ function bindCompres(){
   document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>go('compres',{tab:b.dataset.tab})));
   document.querySelectorAll('[data-sub]').forEach(b=>b.addEventListener('click',()=>go('compres',{tab:ctx.tab,sub:b.dataset.sub})));
   document.querySelectorAll('[data-editinv]').forEach(el=>el.addEventListener('click',()=>{const s=el.dataset.editinv,i=s.indexOf('|'),t=s.slice(0,i),id=s.slice(i+1);formCompra(t,Y()[t].find(x=>x.id===id));}));
-  document.querySelectorAll('[data-prodresum]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const s=el.dataset.prodresum,i=s.indexOf('|'),t=s.slice(0,i),nm=s.slice(i+1);obreProdResum(t,nm);}));
+  bindResumLinks(document);
   document.querySelectorAll('[data-ol]').forEach(el=>el.addEventListener('click',()=>formOlivaCompra(Y().olivesCompres.find(x=>x.id===el.dataset.ol))));
   document.querySelectorAll('[data-olcat]').forEach(el=>el.addEventListener('click',()=>formOlivaCat(Y().olivesCat.find(x=>x.id===el.dataset.olcat))));
   document.querySelectorAll('[data-navsetol]').forEach(b=>b.addEventListener('click',()=>go('compres',{tab:'olives',setOl:navSet(ctx.setOl||defaultSet(),parseInt(b.dataset.navsetol)),olGrid:ctx.olGrid,olGridMode:ctx.olGridMode})));
