@@ -333,7 +333,11 @@ function syncFacturaSrc(t,id,o){ // o={imp,dataISO,categoria,empresa,concepte}
   if(f)Object.assign(f,base);
   else Y().factures.push(Object.assign({id:uid(),num:nextFacturaNum(),recDia:false},base));
 }
-function deleteFacturaSrc(t,id){Y().factures=Y().factures.filter(x=>!(x.auto&&x.srcType===t&&x.srcId===id));}
+function deleteFacturaSrc(t,id){
+  const f=Y().factures.find(x=>x.auto&&x.srcType===t&&x.srcId===id);
+  if(f&&f.pdf){try{sb.storage.from('factures').remove([f.pdf]);}catch(e){}}
+  Y().factures=Y().factures.filter(x=>!(x.auto&&x.srcType===t&&x.srcId===id));
+}
 function diaCatSelect(id,val){return `<select id="${id}">`+['Despeses','FpL','Fp'].map(c=>`<option ${c===(val||'Despeses')?'selected':''}>${c}</option>`).join('')+'</select>';}
 function despCCDia(ds){const c=ccCatByRole('despcc');if(!c)return [];return Y().cc.filter(m=>m.data===ds&&m.catId===c.id&&m.estat!=='Cancelat');}
 function despCCDiaRec(ds){return despCCDia(ds).filter(m=>m.recDia).reduce((s,m)=>s+num(m.debe),0);}
@@ -789,8 +793,8 @@ function vFactures(){
   if(!fs.length)h+='<div class="card muted">Cap factura amb aquest filtre.</div>';
   else h+='<div class="card tight">'+fs.map(f=>`
     <div class="item" data-fac="${f.id}"><div>
-      <div class="t">#${f.num??'—'} · ${f.empresa?`<span style="${PLNK}" data-provresum="${esc(f.empresa)}">${esc(f.empresa)}</span>`:'(sense proveïdor)'}${f.auto?' <span class="muted" style="font-weight:400">· compra</span>':''}</div>
-      <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):''}</div>
+      <div class="t">#${f.num??'—'} · ${f.empresa?`<span style="${PLNK}" data-provresum="${esc(f.empresa)}">${esc(f.empresa)}</span>`:'(sense proveïdor)'}${f.auto?' <span class="muted" style="font-weight:400">· compra</span>':''}${f.pdf?` <span data-pdfopen="${f.id}" style="cursor:pointer" title="Obre el fitxer">📄</span>`:''}</div>
+      <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.format?' · '+esc(f.format):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):''}</div>
     </div><div style="text-align:right"><div class="imp num">${eur(num(f.imp))}</div><span class="chip ${f.estat.toLowerCase()}">${f.estat}</span></div></div>`).join('')+'</div>';
   // vincles per taló
   if(q){
@@ -817,14 +821,51 @@ function bindFactures(){
     const f=Y().factures.find(x=>x.id===el.dataset.fac);
     if(f&&f.auto)obreFacturaSrc(f);else formFactura(f);
   }));
+  document.querySelectorAll('[data-pdfopen]').forEach(el=>el.addEventListener('click',e=>{
+    e.stopPropagation();const f=Y().factures.find(x=>x.id===el.dataset.pdfopen);
+    if(f&&f.pdf)obrePdf(f.pdf);
+  }));
   bindResumLinks(document);
 }
 let refTimer=null;
 function refrescaSuau(){clearTimeout(refTimer);refTimer=setTimeout(()=>{const q=$('#f_q');const pos=q.selectionStart;render();const q2=$('#f_q');q2.focus();q2.setSelectionRange(pos,pos);},250);}
+/* ----- PDF i format de la factura (fitxer al bucket 'factures' de Supabase Storage) ----- */
+const F_FORMATS=['','Digital','Paper','Digital i paper'];
+function pdfFormatHTML(f){
+  f=f||{};
+  return `<div class="row2">
+    <div><label>Format de la factura</label><select id="pf_format">${F_FORMATS.map(o=>`<option value="${o}" ${o===(f.format||'')?'selected':''}>${o||'—'}</option>`).join('')}</select></div>
+    <div><label>Fitxer (PDF o foto)</label><input type="file" id="pf_file" accept="application/pdf,image/*"></div>
+  </div>
+  ${f.pdf?`<div style="display:flex;gap:8px;margin:6px 0"><button class="small" id="pf_view" type="button">📄 Veure el fitxer</button><button class="small danger" id="pf_del" type="button">✕ Treu el fitxer</button></div>`:''}`;
+}
+async function obrePdf(path){
+  const {data,error}=await sb.storage.from('factures').createSignedUrl(path,3600);
+  if(error){alert('No s\'ha pogut obrir el fitxer: '+error.message);return;}
+  window.open(data.signedUrl,'_blank');
+}
+function bindPdfFormat(el,f0){
+  const v=el.querySelector('#pf_view'); if(v)v.addEventListener('click',()=>{if(f0&&f0.pdf)obrePdf(f0.pdf);});
+  let treu=false;
+  const d=el.querySelector('#pf_del'); if(d)d.addEventListener('click',()=>{treu=true;d.textContent='Es treurà en desar';d.disabled=true;});
+  // Retorna una funció async que aplica format + fitxer a l'objecte factura abans de desar
+  return async f=>{
+    f.format=el.querySelector('#pf_format').value||'';
+    if(treu&&f.pdf){try{await sb.storage.from('factures').remove([f.pdf]);}catch(e){} f.pdf='';}
+    const file=el.querySelector('#pf_file').files[0];
+    if(file){
+      const ext=((file.name.split('.').pop()||'pdf').toLowerCase().replace(/[^a-z0-9]/g,''))||'pdf';
+      const path=(typeof sbUser!=='undefined'&&sbUser?sbUser.id+'/':'')+f.id+'.'+ext;
+      const {error}=await sb.storage.from('factures').upload(path,file,{upsert:true});
+      if(error){alert('Les dades es desen, però el fitxer NO s\'ha pujat: '+error.message+'\n\nSi és el primer cop, cal crear el dipòsit (bucket) "factures" a Supabase → Storage.');return;}
+      f.pdf=path;
+    }
+  };
+}
 function formFactura(f){
   const nou=!f;
   const numSeg=Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;
-  f=f||{num:numSeg,imp:'',concepte:'Bacallà',categoria:'FpL',estat:'Pendent',mode:'Taló',talo:'',dataPagISO:'',recDia:false,empresa:'',obs:''};
+  f=f||{num:numSeg,imp:'',concepte:'Bacallà',categoria:'FpL',estat:'Pendent',mode:'Taló',talo:'',dataPagISO:'',recDia:false,empresa:'',obs:'',format:'',pdf:''};
   modal(mTitle(nou?'Nova factura':'Edita factura')+`
     <label>Núm. intern</label><input id="x_num" class="num" inputmode="numeric" value="${f.num??''}">
     <label>Proveïdor</label><input id="x_emp" value="${esc(f.empresa||f.ref||'')}" list="dl_provs">
@@ -842,24 +883,29 @@ function formFactura(f){
       <div><label>Núm. taló</label><input id="x_talo" value="${esc(f.talo||'')}"></div>
     </div>
     <label>Data de pagament (per al dietari)</label><input type="date" id="x_dpagiso" value="${esc(f.dataPagISO||'')}">
+    ${pdfFormatHTML(f)}
     <label>Observacions</label><textarea id="x_obs">${esc(f.obs||'')}</textarea>
     <button class="primary" id="x_desa">Desa</button>
     ${nou?'':'<button class="danger" id="x_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
-    el.querySelector('#x_desa').addEventListener('click',()=>{
+    const aplicaPdf=bindPdfFormat(el,f);
+    el.querySelector('#x_desa').addEventListener('click',async()=>{
       const obj={id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),
         empresa:el.querySelector('#x_emp').value.trim(),imp:numOrNull(el.querySelector('#x_imp').value),
         concepte:el.querySelector('#x_conc').value,categoria:el.querySelector('#x_cat').value,
         estat:el.querySelector('#x_est').value,mode:el.querySelector('#x_mode').value,
         talo:el.querySelector('#x_talo').value.trim(),
         dataPagISO:el.querySelector('#x_dpagiso').value||'',recDia:!!f.recDia,
-        obs:el.querySelector('#x_obs').value.trim()};
+        obs:el.querySelector('#x_obs').value.trim(),format:f.format||'',pdf:f.pdf||''};
       if(obj.imp==null){alert('Falta l\'import.');return;}
+      await aplicaPdf(obj);
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
       save();tancaModal();render();
     });
     const del=el.querySelector('#x_del');
-    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar aquesta factura?')){Y().factures=Y().factures.filter(x=>x.id!==f.id);save();tancaModal();render();}});
+    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar aquesta factura?')){
+      if(f.pdf){try{sb.storage.from('factures').remove([f.pdf]);}catch(e){}}
+      Y().factures=Y().factures.filter(x=>x.id!==f.id);save();tancaModal();render();}});
   });
 }
 
@@ -1013,6 +1059,7 @@ function obreOlivaResum(prodId){const p=Y().olivesCat.find(x=>x.id===prodId);mod
 function formCompra(type,r){
   const cfg=COMPRA_CFG[type]; const nou=!r;
   r=r||{prov:'',data:'',diaCat:'FpL',productes:[]};
+  const fLig=r.id?Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===r.id):null;
   const prods=(r.productes&&r.productes.length)?r.productes.map(p=>({...p})):[{producte:'',qty:'',imp:'',pv:''}];
   const dlId='dl_prod_'+type;
   const prowHTML=p=>`<div class="prow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
@@ -1038,6 +1085,7 @@ function formCompra(type,r){
     <div id="cp_prods">${prods.map(prowHTML).join('')}</div>
     <button class="small" id="cp_add" type="button">+ producte</button>
     <div class="recline"><span class="l">Total factura</span><span class="v num" id="cp_tot">—</span></div>
+    ${pdfFormatHTML(fLig)}
     <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. Amb data, surt al dietari aquell dia i suma a la categoria triada.</p>
     <button class="primary" id="cp_desa">Desa</button>
     ${nou?'':'<button class="danger" id="cp_del" style="width:100%;margin-top:8px">Elimina</button>'}
@@ -1050,12 +1098,15 @@ function formCompra(type,r){
     cont.addEventListener('click',e=>{const d=e.target.closest('.p-del');if(!d)return;const arr=readProds();const i=[...cont.querySelectorAll('.prow')].indexOf(d.closest('.prow'));arr.splice(i,1);if(!arr.length)arr.push({producte:'',qty:'',imp:'',pv:''});rerender(arr);});
     el.querySelector('#cp_add').addEventListener('click',()=>{const arr=readProds();arr.push({producte:'',qty:'',imp:'',pv:''});rerender(arr);});
     recalc();
-    el.querySelector('#cp_desa').addEventListener('click',()=>{
+    const aplicaPdf=bindPdfFormat(el,fLig);
+    el.querySelector('#cp_desa').addEventListener('click',async()=>{
       const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null);
       const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:el.querySelector('#cp_data').value,diaCat:el.querySelector('#cp_cat').value,productes:productes};
       if(r.id){const i=Y()[type].findIndex(x=>x.id===r.id);Y()[type][i]=obj;}else Y()[type].push(obj);
       const noms=productes.map(p=>p.producte).filter(Boolean);
       syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
+      const fNou=Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===obj.id);
+      if(fNou)await aplicaPdf(fNou);
       save();tancaModal();render();
     });
     const del=el.querySelector('#cp_del');
@@ -1340,8 +1391,8 @@ function exportaXLSX(){
   Y().cc.slice().sort((a,b)=>a.data<b.data?-1:1).forEach(m=>cc.push([m.data,m.concepte,ccCatNom(m),n0(m.debe),n0(m.haber),m.estat,m.obs||'']));
   fullA(wb,cc,'Compte corrent');
   // Factures
-  const ff=[['Número','Proveïdor','Import','Concepte','Categoria','Estat','Mode pagament','Núm taló','Data pagament','Recaptació','Observacions']];
-  Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>ff.push([n0(f.num),f.empresa||'',n0(f.imp),f.concepte||'',f.categoria||'',f.estat,f.mode||'',f.talo||'',f.dataPagISO||'',f.recDia?'sí':'',f.obs||'']));
+  const ff=[['Número','Proveïdor','Import','Concepte','Categoria','Estat','Mode pagament','Núm taló','Data pagament','Recaptació','Format','PDF','Observacions']];
+  Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>ff.push([n0(f.num),f.empresa||'',n0(f.imp),f.concepte||'',f.categoria||'',f.estat,f.mode||'',f.talo||'',f.dataPagISO||'',f.recDia?'sí':'',f.format||'',f.pdf?'sí':'',f.obs||'']));
   fullA(wb,ff,'Factures');
   // Bacallà (una fila per producte de cada factura)
   const bb=[['Data','Proveïdor','Producte','Kg','Import','Cost €/kg','Preu venda €/kg','% Benefici']];
