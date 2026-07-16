@@ -562,10 +562,13 @@ function barMes(mes,vistaNom){
   </div>`;
 }
 function vDietari(){
+  const sub=ctx.sub==='any'?'any':'mes';
+  const subbar=`<div class="subtabs"><button data-dsub="mes" class="${sub==='mes'?'on':''}">Mes a mes</button><button data-dsub="any" class="${sub==='any'?'on':''}">Resum anual</button></div>`;
+  if(sub==='any')return subbar+vResumAnual();
   const mes=ctx.mes??(new Date().getFullYear()==S.activeYear?new Date().getMonth():0);
   ctx.mes=mes;
   const setm=setmanesDelMes(parseInt(S.activeYear),mes);
-  let h='<h2>Dietari</h2>'+barMes(mes);
+  let h=subbar+barMes(mes);
   setm.forEach((w,i)=>{
     const t=totalsRang(w);
     h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Dia</th><th class="n">Efectiu</th><th class="n">TPV</th><th class="n">Recapt.</th><th class="n">Desp.</th><th class="n">Fp</th><th class="n">FpL</th></tr></thead><tbody>';
@@ -602,6 +605,7 @@ function bindDietari(){
   }));
   document.querySelectorAll('tr[data-dia]').forEach(tr=>tr.addEventListener('click',()=>go('avui',{data:tr.dataset.dia})));
   document.querySelectorAll('[data-tancset]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();go('tancament',{tancSet:b.dataset.tancset,mes:ctx.mes});}));
+  document.querySelectorAll('[data-dsub]').forEach(b=>b.addEventListener('click',()=>go('dietari',{...ctx,sub:b.dataset.dsub})));
 }
 
 /* ================= VISTA: TANCAMENT SETMANAL (dissabte) ================= */
@@ -860,8 +864,7 @@ function formFactura(f){
 
 /* ================= VISTA: MÉS (menú) ================= */
 function vMes(){
-  const its=[['tresoreria','◑','Resum de tresoreria'],
-    ['resumAnual','▤','Resum anual'],['exporta','⇩','Exporta a Excel (.xlsx)'],
+  const its=[['tresoreria','◑','Resum de tresoreria'],['exporta','⇩','Exporta a Excel (.xlsx)'],
     ['copia','⛃','Còpia de seguretat (JSON)'],['config','⚙','Configuració i anys']];
   return '<h2>Més</h2><div class="card tight menu">'+its.map(([v,ic,t])=>
     `<div class="item" data-go="${v}"><div class="t"><span class="ic">${ic}</span>${t}</div><div class="muted">›</div></div>`).join('')+'</div>';
