@@ -1,7 +1,7 @@
 /* Service worker del Dietari.
    Estratègia: primer xarxa (així les actualitzacions de Netlify arriben soles),
    i si no hi ha connexió, se serveix la còpia en memòria cau (mode offline). */
-const CACHE = 'dietari-v1';
+const CACHE = 'dietari-v2';
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(['./'])).then(() => self.skipWaiting()));
@@ -18,6 +18,10 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET') return; // les crides de dades (Supabase POST/PATCH) van directes
+  // MAI tocar ni desar en cau res de Supabase (dades del dietari, PDF de factures,
+  // sessió/tokens): ha d'anar sempre directe a la xarxa, sense còpia local extra.
+  const url = new URL(req.url);
+  if (url.hostname.endsWith('.supabase.co')) return;
   e.respondWith(
     fetch(req)
       .then(res => {
