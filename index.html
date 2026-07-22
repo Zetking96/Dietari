@@ -1448,10 +1448,14 @@ function bindCopia(){
   $('#impJson').addEventListener('change',e=>{
     const f=e.target.files[0];if(!f)return;
     const r=new FileReader();
-    r.onload=()=>{try{const d=JSON.parse(r.result);
+    r.onload=async()=>{try{const d=JSON.parse(r.result);
       if(!d.years||!d.activeYear)throw 0;
       if(!confirm('Substituir totes les dades actuals per les del fitxer?'))return;
-      S=d;save();go('avui');alert('Còpia restaurada.');
+      S=d; saveCache(); pintaAnys(); go('avui');
+      // puja immediatament al núvol i espera; així la còpia no es pot perdre en recarregar
+      clearTimeout(saveTimer); savePending=true; syncStatus('pendent');
+      await pushRemote();
+      alert(savePending?'Restaurat al dispositiu, però NO s\'ha pogut desar al núvol (revisa la connexió i torna-ho a provar abans de tancar l\'app).':'Còpia restaurada i desada al núvol.');
     }catch(err){alert('El fitxer no és una còpia vàlida.');}};
     r.readAsText(f);
   });
