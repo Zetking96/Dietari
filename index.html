@@ -302,22 +302,29 @@ function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'
 function dataCA(isoStr){const [a,m,d]=isoStr.split('-');return parseInt(d)+' '+MESOS[parseInt(m)-1].slice(0,3)+'.';}
 function dataCAL(isoStr){const [a,m,d]=isoStr.split('-');return parseInt(d)+' de '+MESOS[parseInt(m)-1]+' de '+a;}
 function mesDeIso(s){return parseInt(s.slice(5,7))-1;}
-/* Setmanes Dl–Ds: 6 dies, cada setmana pertany al mes del seu dilluns */
+/* Setmanes Dl–Ds: 6 dies. Cada setmana pertany al mes que té més dies (el mes del seu dimecres) */
 function mondayOnOrBefore(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-((x.getDay()+6)%7));return x;}
 function setmanaDe(ds){const mon=mondayOnOrBefore(new Date(ds+'T12:00'));const w=[];for(let i=0;i<6;i++){const x=new Date(mon);x.setDate(mon.getDate()+i);w.push(iso(x));}return w;}
 function dissabteDe(ds){return setmanaDe(ds)[5];}
-function mesDeSetmana(satIso){return mondayOnOrBefore(new Date(satIso+'T12:00')).getMonth();}
+function mesDeSetmana(satIso){const x=mondayOnOrBefore(new Date(satIso+'T12:00'));x.setDate(x.getDate()+2);return x.getMonth();}
 function setmanesDelMes(any,mes){
   const setmanes=[]; let mon=mondayOnOrBefore(new Date(any,mes,1));
-  if(mon.getMonth()!==mes||mon.getFullYear()!==any)mon.setDate(mon.getDate()+7);
-  while(mon.getMonth()===mes&&mon.getFullYear()===any){
-    const w=[];for(let i=0;i<6;i++){const x=new Date(mon);x.setDate(mon.getDate()+i);w.push(iso(x));}
-    setmanes.push(w); mon.setDate(mon.getDate()+7);
+  for(;;){
+    const dim=new Date(mon); dim.setDate(mon.getDate()+2); // el dimecres decideix el mes
+    if(dim.getFullYear()>any||(dim.getFullYear()===any&&dim.getMonth()>mes))break;
+    if(dim.getFullYear()===any&&dim.getMonth()===mes){
+      const w=[];for(let i=0;i<6;i++){const x=new Date(mon);x.setDate(mon.getDate()+i);w.push(iso(x));}
+      setmanes.push(w);
+    }
+    mon.setDate(mon.getDate()+7);
   }
   return setmanes;
 }
 function dia(isoStr){return Y().dies[isoStr]||null;}
-function factDia(ds){return Y().factures.filter(f=>f.estat==='Pagat'&&f.dataPagISO===ds);}
+/* Fins al 21-07-2026 el dietari és una còpia informativa de l'Excel: els vincles entre pestanyes
+   (factures pagades → dietari, ingressos TPV del banc → TPV net) només funcionen a partir d'aquesta data */
+const VINCLES_DES='2026-07-22';
+function factDia(ds){return ds>=VINCLES_DES?Y().factures.filter(f=>f.estat==='Pagat'&&f.dataPagISO===ds):[];}
 function factDiaRec(ds){return factDia(ds).filter(f=>f.recDia).reduce((s,f)=>s+num(f.imp),0);}
 /* Cada factura suma a un bloc del dia segons la seva categoria: Fp / FpL / Despeses (la resta → Despeses) */
 function factBlock(f){const c=(f&&f.categoria)||'';return c==='Fp'?'fp':c==='FpL'?'fpl':'desp';}
@@ -351,7 +358,7 @@ function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl')+olive
 function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
 /* TPV: el net és l'ingrés real al banc (categoria TPV) d'aquell dia. Si encara no n'hi ha, s'usa el brut provisional. Comissió = brut − net */
-function tpvBancDia(ds){const c=ccCatByRole('tpv');if(!c||!ds)return 0;return Y().cc.filter(m=>m.catId===c.id&&m.estat!=='Cancelat'&&(m.tpvData||m.data)===ds).reduce((s,m)=>s+num(m.haber),0);}
+function tpvBancDia(ds){if(!ds||ds<VINCLES_DES)return 0;const c=ccCatByRole('tpv');if(!c)return 0;return Y().cc.filter(m=>m.catId===c.id&&m.estat!=='Cancelat'&&(m.tpvData||m.data)===ds).reduce((s,m)=>s+num(m.haber),0);}
 function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0);}
 function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:0;}
 function comissioTpvRang(isos){return (isos||[]).reduce((s,ds)=>s+comissioTpvDia(dia(ds),ds),0);}
