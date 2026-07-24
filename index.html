@@ -98,7 +98,7 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
 .monthbar button{width:42px;}
 .chip{display:inline-block; font-size:.7rem; font-weight:700; padding:2px 8px; border-radius:999px; letter-spacing:.03em;}
 .chip.pagat,.chip.ingressat{background:#E4EFE8; color:var(--verd);}
-.chip.pendent{background:#F5EBD8; color:var(--pendent);}
+.chip.pendent,.chip.parcial{background:#F5EBD8; color:var(--pendent);}
 .chip.cancelat{background:#F3E2E2; color:var(--vermell);}
 .item{display:flex; justify-content:space-between; gap:8px; padding:9px 2px; border-bottom:1px solid var(--linia); cursor:pointer;}
 .item:last-child{border-bottom:none;}
@@ -328,11 +328,38 @@ function dia(isoStr){return Y().dies[isoStr]||null;}
 /* Fins al 21-07-2026 el dietari és una còpia informativa de l'Excel: els vincles entre pestanyes
    (factures pagades → dietari, ingressos TPV del banc → TPV net) només funcionen a partir d'aquesta data */
 const VINCLES_DES='2026-07-22';
-function factDia(ds){return ds>=VINCLES_DES?Y().factures.filter(f=>f.estat==='Pagat'&&f.dataPagISO===ds):[];}
-function factDiaRec(ds){return factDia(ds).filter(f=>f.recDia).reduce((s,f)=>s+num(f.imp),0);}
+/* Pagaments d'una factura: llista {data, talo, imp}. Una factura es pot pagar en diversos terminis
+   (cada un amb data i taló). Si no hi ha llista de pagaments, es fa servir el pagament únic (dataPagISO/talo/imp). */
+function factPags(f){
+  if(Array.isArray(f.pagaments)&&f.pagaments.length)return f.pagaments.filter(p=>p&&p.data).map(p=>({data:p.data,talo:(p.talo||'').trim(),imp:num(p.imp)}));
+  if(f.estat==='Pagat'&&f.dataPagISO)return [{data:f.dataPagISO,talo:(f.talo||'').trim(),imp:num(f.imp)}];
+  return [];
+}
+function factPagat(f){return factPags(f).reduce((s,p)=>s+num(p.imp),0);}
+/* Estat real: Pagat si els pagaments cobreixen l'import, Parcial si en cobreixen una part, si no Pendent */
+function factEstat(f){
+  if(Array.isArray(f.pagaments)&&f.pagaments.length){const pg=factPagat(f),tot=num(f.imp);return pg<=0?'Pendent':(pg+0.005<tot?'Parcial':'Pagat');}
+  return f.estat||'Pendent';
+}
+/* Pagaments de factures fets un dia concret (només des del 22-07) */
+/* Text resum de l'estat de pagament d'una factura, per a les llistes */
+function factPagInfo(f){
+  const est=factEstat(f), pays=factPags(f);
+  if(est==='Pendent'||!pays.length)return '';
+  if(est==='Parcial')return ' · pagat '+eur0(factPagat(f))+' de '+eur0(num(f.imp))+(pays.length>1?' ('+pays.length+' pag.)':'');
+  return ' · pagada '+(pays.length>1?'en '+pays.length+' pagaments':dataCA(pays[pays.length-1].data))+(f.recDia?' (rec)':'');
+}
+function factPagsDia(ds){
+  if(!ds||ds<VINCLES_DES)return [];
+  const out=[];
+  Y().factures.forEach(f=>{factPags(f).forEach(p=>{if(p.data===ds)out.push({f:f,imp:p.imp,talo:p.talo});});});
+  return out;
+}
+function factDia(ds){const seen={},out=[];factPagsDia(ds).forEach(x=>{if(!seen[x.f.id]){seen[x.f.id]=1;out.push(x.f);}});return out;}
+function factDiaRec(ds){return factPagsDia(ds).filter(x=>x.f.recDia).reduce((s,x)=>s+num(x.imp),0);}
 /* Cada factura suma a un bloc del dia segons la seva categoria: Fp / FpL / Despeses (la resta → Despeses) */
 function factBlock(f){const c=(f&&f.categoria)||'';return c==='Fp'?'fp':c==='FpL'?'fpl':'desp';}
-function factDiaBloc(ds,bloc){return ds?factDia(ds).filter(f=>factBlock(f)===bloc).reduce((s,f)=>s+num(f.imp),0):0;}
+function factDiaBloc(ds,bloc){return factPagsDia(ds).filter(x=>factBlock(x.f)===bloc).reduce((s,x)=>s+num(x.imp),0);}
 /* Factures automàtiques lligades a una compra (srcType+srcId). Estat segons data: amb data→Pagat, sense→Pendent */
 function nextFacturaNum(){return Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;}
 function syncFacturaSrc(t,id,o){ // o={imp,dataISO,categoria,empresa,concepte}
@@ -489,12 +516,12 @@ function exLineHTML(src,id,imp,concept,rec){
   </div>`;
 }
 function infoDiaHTML(ds){
-  const dc=despCCDia(ds), ff=factDia(ds);
-  if(!dc.length&&!ff.length)return '';
+  const dc=despCCDia(ds), pp=factPagsDia(ds);
+  if(!dc.length&&!pp.length)return '';
   let h='<div class="card" id="cardEnllacos"><h3>Banc i factures d\'aquest dia</h3>'+
     '<div class="muted" style="margin-bottom:6px">Marca «rec» a cada línia si vols que compti a la recaptació del dia.</div>'+
     '<div class="lineblk">';
-  ff.forEach(f=>{h+=exLineHTML('fact',f.id,f.imp,'#'+(f.num??'—')+' '+(f.empresa||f.concepte||'Factura'),!!f.recDia);});
+  pp.forEach(x=>{const f=x.f;const tal=x.talo?' · taló '+esc(x.talo):'';h+=exLineHTML('fact',f.id,x.imp,'#'+(f.num??'—')+' '+(f.empresa||f.concepte||'Factura')+tal,!!f.recDia);});
   dc.forEach(m=>{h+=exLineHTML('cc',m.id,m.debe,m.concepte||'Despesa c/c',!!m.recDia);});
   h+='</div></div>';return h;
 }
@@ -596,17 +623,17 @@ function liniesCamp(ds,camp){
   }
   else if(camp==='fp'){
     (d&&d.fpLines||[]).forEach(l=>out.push({desc:l.c||'Fp del dia',imp:num(l.imp),rec:!!l.rec}));
-    factDia(ds).filter(f=>factBlock(f)==='fp').forEach(f=>out.push({desc:'Factura #'+(f.num??'')+' '+(f.empresa||f.concepte||''),imp:num(f.imp),rec:!!f.recDia}));
+    factPagsDia(ds).filter(x=>factBlock(x.f)==='fp').forEach(x=>out.push({desc:'Factura #'+(x.f.num??'')+' '+(x.f.empresa||x.f.concepte||'')+(x.talo?' · taló '+x.talo:''),imp:num(x.imp),rec:!!x.f.recDia}));
     (Y().olivesCompres||[]).filter(c=>c.bloc==='fp'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
   }
   else if(camp==='fpl'){
     (d&&d.fplLines||[]).forEach(l=>out.push({desc:l.c||'FpL del dia',imp:num(l.imp),rec:!!l.rec}));
-    factDia(ds).filter(f=>factBlock(f)==='fpl').forEach(f=>out.push({desc:'Factura #'+(f.num??'')+' '+(f.empresa||f.concepte||''),imp:num(f.imp),rec:!!f.recDia}));
+    factPagsDia(ds).filter(x=>factBlock(x.f)==='fpl').forEach(x=>out.push({desc:'Factura #'+(x.f.num??'')+' '+(x.f.empresa||x.f.concepte||'')+(x.talo?' · taló '+x.talo:''),imp:num(x.imp),rec:!!x.f.recDia}));
     (Y().olivesCompres||[]).filter(c=>c.bloc==='fpl'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
   }
   else if(camp==='desp'){
     (d&&d.despLines||[]).forEach(l=>out.push({desc:l.c||'Despeses del dia',imp:num(l.imp),rec:!!l.rec}));
-    factDia(ds).filter(f=>factBlock(f)==='desp').forEach(f=>out.push({desc:'Factura #'+(f.num??'')+' '+(f.empresa||f.concepte||''),imp:num(f.imp),rec:!!f.recDia}));
+    factPagsDia(ds).filter(x=>factBlock(x.f)==='desp').forEach(x=>out.push({desc:'Factura #'+(x.f.num??'')+' '+(x.f.empresa||x.f.concepte||'')+(x.talo?' · taló '+x.talo:''),imp:num(x.imp),rec:!!x.f.recDia}));
   }
   else if(camp==='dcc'){ despCCDia(ds).forEach(m=>out.push({desc:m.concepte||'Despesa c/c',imp:num(m.debe)})); }
   else if(camp==='rec'){
@@ -616,7 +643,7 @@ function liniesCamp(ds,camp){
     (d&&d.fpLines||[]).filter(l=>l.rec).forEach(l=>out.push({desc:'Fp · '+(l.c||'del dia'),imp:num(l.imp)}));
     (d&&d.fplLines||[]).filter(l=>l.rec).forEach(l=>out.push({desc:'FpL · '+(l.c||'del dia'),imp:num(l.imp)}));
     (d&&d.despLines||[]).filter(l=>l.rec).forEach(l=>out.push({desc:'Despeses · '+(l.c||'del dia'),imp:num(l.imp)}));
-    factDia(ds).filter(f=>f.recDia).forEach(f=>out.push({desc:'Factura #'+(f.num??''),imp:num(f.imp)}));
+    factPagsDia(ds).filter(x=>x.f.recDia).forEach(x=>out.push({desc:'Factura #'+(x.f.num??'')+(x.talo?' · taló '+x.talo:''),imp:num(x.imp)}));
     despCCDia(ds).filter(m=>m.recDia).forEach(m=>out.push({desc:'c/c · '+(m.concepte||''),imp:num(m.debe)}));
   }
   return out;
@@ -939,9 +966,10 @@ const F_CONCEPTES=['Bacallà','Conserva','Olives','Paper','Gestoria','Llum','Quo
 function vFactures(){
   const q=(ctx.q||'').toLowerCase(); const fEstat=ctx.estat||'Tots';
   let fs=Y().factures.slice().sort((a,b)=>(b.num||0)-(a.num||0));
-  if(fEstat!=='Tots')fs=fs.filter(f=>f.estat===fEstat);
-  if(q)fs=fs.filter(f=>[f.num,f.empresa,f.concepte,f.talo,f.obs].some(v=>String(v??'').toLowerCase().includes(q)));
-  const pend=Y().factures.filter(f=>f.estat==='Pendent').reduce((s,f)=>s+num(f.imp),0);
+  if(fEstat==='Pagat')fs=fs.filter(f=>factEstat(f)==='Pagat');
+  else if(fEstat==='Pendent')fs=fs.filter(f=>factEstat(f)!=='Pagat'); // inclou Parcial
+  if(q)fs=fs.filter(f=>[f.num,f.empresa,f.concepte,f.talo,f.obs].concat(factPags(f).map(p=>p.talo)).some(v=>String(v??'').toLowerCase().includes(q)));
+  const pend=Y().factures.reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);
   let h=`<h2>Factures</h2>
   <div class="searchbar"><input id="f_q" type="search" placeholder="Cerca: proveïdor, núm. taló…" value="${esc(ctx.q||'')}"></div>
   <div class="subtabs">${['Tots','Pendent','Pagat'].map(e=>`<button data-estat="${e}" class="${e===fEstat?'on':''}">${e}</button>`).join('')}</div>
@@ -950,8 +978,8 @@ function vFactures(){
   else h+='<div class="card tight">'+fs.map(f=>`
     <div class="item" data-fac="${f.id}"><div>
       <div class="t">#${f.num??'—'} · ${f.empresa?`<span style="${PLNK}" data-provresum="${esc(f.empresa)}">${esc(f.empresa)}</span>`:'(sense proveïdor)'}${f.auto?' <span class="muted" style="font-weight:400">· compra</span>':''}${f.pdf?` <span data-pdfopen="${f.id}" style="cursor:pointer" title="Obre el fitxer">📄</span>`:''}</div>
-      <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.talo?' '+esc(f.talo):''}${f.format?' · '+esc(f.format):''}${f.dataPagISO?' · pagada '+dataCA(f.dataPagISO)+(f.recDia?' (rec)':''):''}</div>
-    </div><div style="text-align:right"><div class="imp num">${eur(num(f.imp))}</div><span class="chip ${f.estat.toLowerCase()}">${f.estat}</span></div></div>`).join('')+'</div>';
+      <div class="s">${esc(f.concepte||'')} · ${esc(f.categoria||'')} · ${esc(f.mode||'')}${f.format?' · '+esc(f.format):''}${factPagInfo(f)}</div>
+    </div><div style="text-align:right"><div class="imp num">${eur(num(f.imp))}</div><span class="chip ${factEstat(f).toLowerCase()}">${factEstat(f)}</span></div></div>`).join('')+'</div>';
   // vincles per taló
   if(q){
     const vincles=[];
@@ -1022,38 +1050,60 @@ function formFactura(f){
   const nou=!f;
   const numSeg=Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;
   f=f||{num:numSeg,imp:'',concepte:'Bacallà',categoria:'FpL',estat:'Pendent',mode:'Taló',talo:'',dataPagISO:'',recDia:false,empresa:'',obs:'',format:'',pdf:''};
+  const payRowHTML=p=>`<div class="payrow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
+    <div class="row3">
+      <input type="date" class="pay-data" value="${p&&p.data||''}">
+      <input class="pay-talo" placeholder="Taló" value="${esc(p&&p.talo||'')}">
+      <input class="num pay-imp" inputmode="decimal" placeholder="Import" value="${p&&p.imp!=null&&p.imp!==''?p.imp:''}">
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:4px"><button class="small pay-del" type="button">✕ treu</button></div>
+  </div>`;
+  const paysHTML=arr=>(arr.length?arr:[{data:'',talo:'',imp:''}]).map(payRowHTML).join('');
   modal(mTitle(nou?'Nova factura':'Edita factura')+`
     <label>Núm. intern</label><input id="x_num" class="num" inputmode="numeric" value="${f.num??''}">
     <label>Proveïdor</label><input id="x_emp" value="${esc(f.empresa||f.ref||'')}" list="dl_provs">
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
     <div class="row2">
-      <div><label>Import</label><input id="x_imp" class="num" inputmode="decimal" value="${f.imp??''}"></div>
+      <div><label>Import total</label><input id="x_imp" class="num" inputmode="decimal" value="${f.imp??''}"></div>
       <div><label>Concepte</label><select id="x_conc">${F_CONCEPTES.map(c=>`<option ${c===f.concepte?'selected':''}>${c}</option>`).join('')}</select></div>
     </div>
     <div class="row2">
       <div><label>Categoria</label><select id="x_cat">${F_CATS.map(c=>`<option ${c===f.categoria?'selected':''}>${c}</option>`).join('')}</select></div>
-      <div><label>Estat</label><select id="x_est">${['Pendent','Pagat'].map(c=>`<option ${c===f.estat?'selected':''}>${c}</option>`).join('')}</select></div>
-    </div>
-    <div class="row2">
       <div><label>Mode de pagament</label><select id="x_mode">${F_MODES.map(c=>`<option ${c===f.mode?'selected':''}>${c}</option>`).join('')}</select></div>
-      <div><label>Núm. taló</label><input id="x_talo" value="${esc(f.talo||'')}"></div>
     </div>
-    <label>Data de pagament (per al dietari)</label><input type="date" id="x_dpagiso" value="${esc(f.dataPagISO||'')}">
+    <h3 style="margin:12px 0 2px">Pagaments</h3>
+    <p class="muted" style="margin:0 0 8px">Es pot pagar en diverses dates; cada pagament té la seva data, taló i import, i surt al dietari el seu dia. Deixa-ho buit si encara està pendent.</p>
+    <div id="x_pays">${paysHTML(factPags(f).map(p=>({...p})))}</div>
+    <button class="small" id="x_addpay" type="button">+ pagament</button>
+    <div class="recline"><span class="l">Pagat</span><span class="v num" id="x_pagat">—</span></div>
     ${pdfFormatHTML(f)}
     <label>Observacions</label><textarea id="x_obs">${esc(f.obs||'')}</textarea>
     <button class="primary" id="x_desa">Desa</button>
     ${nou?'':'<button class="danger" id="x_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
+    const cont=el.querySelector('#x_pays');
+    const readPays=()=>[...cont.querySelectorAll('.payrow')].map(r=>({data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),imp:numOrNull(r.querySelector('.pay-imp').value)}));
+    const recalc=()=>{const arr=readPays();const pg=arr.reduce((s,p)=>s+num(p.imp),0);const tot=num(el.querySelector('#x_imp').value);
+      el.querySelector('#x_pagat').textContent=eur0(pg)+(tot?' de '+eur0(tot)+(pg+0.005<tot?' · queda '+eur0(tot-pg):(pg>tot+0.005?' · excés':' ✓')):'');};
+    const rerender=arr=>{cont.innerHTML=paysHTML(arr);recalc();};
+    cont.addEventListener('input',recalc);
+    el.querySelector('#x_imp').addEventListener('input',recalc);
+    cont.addEventListener('click',e=>{const d=e.target.closest('.pay-del');if(!d)return;const arr=readPays();const i=[...cont.querySelectorAll('.payrow')].indexOf(d.closest('.payrow'));arr.splice(i,1);rerender(arr);});
+    el.querySelector('#x_addpay').addEventListener('click',()=>{const arr=readPays();arr.push({data:'',talo:'',imp:''});rerender(arr);});
+    recalc();
     const aplicaPdf=bindPdfFormat(el,f);
     el.querySelector('#x_desa').addEventListener('click',async()=>{
+      const pagaments=readPays().filter(p=>p.data||p.imp!=null).map(p=>({data:p.data,talo:p.talo,imp:p.imp==null?0:p.imp}));
+      if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
       const obj={id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),
         empresa:el.querySelector('#x_emp').value.trim(),imp:numOrNull(el.querySelector('#x_imp').value),
         concepte:el.querySelector('#x_conc').value,categoria:el.querySelector('#x_cat').value,
-        estat:el.querySelector('#x_est').value,mode:el.querySelector('#x_mode').value,
-        talo:el.querySelector('#x_talo').value.trim(),
-        dataPagISO:el.querySelector('#x_dpagiso').value||'',recDia:!!f.recDia,
+        mode:el.querySelector('#x_mode').value,recDia:!!f.recDia,pagaments:pagaments,
         obs:el.querySelector('#x_obs').value.trim(),format:f.format||'',pdf:f.pdf||''};
-      if(obj.imp==null){alert('Falta l\'import.');return;}
+      if(obj.imp==null){alert('Falta l\'import total.');return;}
+      obj.estat=factEstat(obj);                 // Pendent / Parcial / Pagat, derivat dels pagaments
+      obj.dataPagISO=pagaments.length?pagaments[0].data:''; // compat amb vistes antigues
+      obj.talo=pagaments.length?pagaments[0].talo:'';
       await aplicaPdf(obj);
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
       save();tancaModal();render();
@@ -1186,15 +1236,15 @@ function provResumHTML(nm){
   const low=nm.trim().toLowerCase();
   const fs=Y().factures.filter(f=>(f.empresa||'').trim().toLowerCase()===low).sort((a,b)=>(a.dataPagISO||'')<(b.dataPagISO||'')?1:-1);
   const tot=fs.reduce((s,f)=>s+num(f.imp),0);
-  const pend=fs.filter(f=>f.estat==='Pendent').reduce((s,f)=>s+num(f.imp),0);
+  const pend=fs.reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);
   let h=`<div class="recline"><span class="l">Total facturat</span><span class="v num">${eur0(tot)} (${fs.length} fact.)</span></div>`;
   h+=`<div class="recline"><span class="l">Pendent de pagar</span><span class="v num">${eur0(pend)}</span></div>`;
-  const tq={};fs.forEach(f=>{const qn=quatri(f.dataPagISO);if(qn!=null){tq[qn]=(tq[qn]||0)+num(f.imp);}});
+  const tq={};fs.forEach(f=>factPags(f).forEach(p=>{const qn=quatri(p.data);if(qn!=null)tq[qn]=(tq[qn]||0)+num(p.imp);}));
   h+='<h3>Pagat per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">Import</th></tr></thead><tbody>';
   [0,1,2].forEach(qn=>{if(tq[qn])h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${eur0(tq[qn])}</td></tr>`;});
   h+='</tbody></table>';
-  h+='<h3>Totes les factures</h3><div class="scrollx"><table><thead><tr><th>Núm.</th><th>Concepte</th><th class="n">Import</th><th>Estat</th><th>Data</th></tr></thead><tbody>';
-  fs.forEach(f=>{h+=`<tr><td>#${f.num??'—'}</td><td>${esc(f.concepte||'')}</td><td class="n">${eur0(num(f.imp))}</td><td><span class="chip ${(f.estat||'').toLowerCase()}">${f.estat||''}</span></td><td>${f.dataPagISO?dataCA(f.dataPagISO):'—'}</td></tr>`;});
+  h+='<h3>Totes les factures</h3><div class="scrollx"><table><thead><tr><th>Núm.</th><th>Concepte</th><th class="n">Import</th><th>Estat</th><th>Pagaments</th></tr></thead><tbody>';
+  fs.forEach(f=>{const pays=factPags(f);const dsum=pays.length?pays.map(p=>dataCA(p.data)+(p.talo?' ('+esc(p.talo)+')':'')).join(', '):'—';h+=`<tr><td>#${f.num??'—'}</td><td>${esc(f.concepte||'')}</td><td class="n">${eur0(num(f.imp))}</td><td><span class="chip ${factEstat(f).toLowerCase()}">${factEstat(f)}</span></td><td>${dsum}</td></tr>`;});
   h+='</tbody></table></div>';
   return h;
 }
@@ -1469,7 +1519,7 @@ function bindCompres(){
 function vTresoreria(){
   let ultim=null,ultimK=null;
   Object.keys(Y().tanc).sort().forEach(k=>{const t=Y().tanc[k];if(t.caixa!=null||t.banc!=null){ultim=t;ultimK=k;}});
-  const pend=Y().factures.filter(f=>f.estat==='Pendent').reduce((s,f)=>s+num(f.imp),0);
+  const pend=Y().factures.reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);
   const caixa=ultim?ultim.caixa:null, banc=ultim?ultim.banc:null;
   const neta=(caixa||0)+(banc||0)-pend;
   return `<h2>Resum de tresoreria</h2>
@@ -1550,8 +1600,8 @@ function exportaXLSX(){
   Y().cc.slice().sort((a,b)=>a.data<b.data?-1:1).forEach(m=>cc.push([m.data,m.concepte,ccCatNom(m),n0(m.debe),n0(m.haber),m.estat,m.obs||'']));
   fullA(wb,cc,'Compte corrent');
   // Factures
-  const ff=[['Número','Proveïdor','Import','Concepte','Categoria','Estat','Mode pagament','Núm taló','Data pagament','Recaptació','Format','PDF','Observacions']];
-  Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>ff.push([n0(f.num),f.empresa||'',n0(f.imp),f.concepte||'',f.categoria||'',f.estat,f.mode||'',f.talo||'',f.dataPagISO||'',f.recDia?'sí':'',f.format||'',f.pdf?'sí':'',f.obs||'']));
+  const ff=[['Número','Proveïdor','Import','Concepte','Categoria','Estat','Mode pagament','Pagat','Pagaments (data · taló · import)','Recaptació','Format','PDF','Observacions']];
+  Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>{const pays=factPags(f);const pagStr=pays.map(p=>(p.data||'')+(p.talo?' · '+p.talo:'')+' · '+n0(p.imp)).join(' | ');ff.push([n0(f.num),f.empresa||'',n0(f.imp),f.concepte||'',f.categoria||'',factEstat(f),f.mode||'',n0(factPagat(f)),pagStr,f.recDia?'sí':'',f.format||'',f.pdf?'sí':'',f.obs||'']);});
   fullA(wb,ff,'Factures');
   // Bacallà (una fila per producte de cada factura)
   const bb=[['Data','Proveïdor','Producte','Kg','Import','Cost €/kg','Preu venda €/kg','% Benefici']];
