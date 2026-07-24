@@ -383,7 +383,10 @@ function isosDelMes(mes){const any=parseInt(S.activeYear);return setmanesDelMes(
 /* Comissió TPV del mes: si hi ha una xifra desada manualment (resum de l'Excel, gen–jun) es fa
    servir aquella; si no, es calcula del banc (brut − net dels ingressos TPV, útil d'agost endavant). */
 function comissioMesStored(mes){const cm=Y().comTpvMes;return cm&&cm[mes]!=null?num(cm[mes]):null;}
-function comissioMes(mes){const s=comissioMesStored(mes);return s!=null?s:comissioTpvRang(isosDelMes(mes));}
+/* Comissió automàtica del banc del mes (ingressos TPV, brut−net) — compta des del 22-07 */
+function comissioAutoMes(mes){return comissioTpvRang(isosDelMes(mes));}
+/* Comissió total del mes = xifra manual desada (resum Excel) + comissió automàtica del banc */
+function comissioMes(mes){return (comissioMesStored(mes)||0)+comissioAutoMes(mes);}
 /* Total del mes: la recaptació resta la comissió TPV del mes (com al resum de l'Excel).
    Les setmanes queden amb el brut; la comissió només afecta el total mensual/quatrimestral. */
 function totalsMes(mes){const t=totalsRang(isosDelMes(mes));const s=comissioMesStored(mes);if(s!=null)t.rec=r2(t.rec-s);return t;}
@@ -635,7 +638,40 @@ function breakdownSetmanaHTML(w,camp){
   else if(showRec)h+='<p class="muted">Les línies «rec: no» (factures grosses/talons de la setmana) sumen al total de '+CAMP_NOM[camp]+' però no a la recaptació.</p>';
   return h;
 }
-function obreBreakdownSetmana(monIso,camp){const w=setmanaDe(monIso);modal(mTitle(CAMP_NOM[camp]+' · setmana '+dataCA(w[0])+' – '+dataCA(w[5]))+breakdownSetmanaHTML(w,camp),el=>bindResumLinks(el));}
+function obreBreakdownSetmana(monIso,camp,backMes){const w=setmanaDe(monIso);
+  const back=(backMes!=null&&!isNaN(backMes))?'<button class="small" id="bkMes" style="margin-bottom:10px">‹ Torna a '+MESOS[backMes]+'</button>':'';
+  modal(mTitle(CAMP_NOM[camp]+' · setmana '+dataCA(w[0])+' – '+dataCA(w[5]))+back+breakdownSetmanaHTML(w,camp),el=>{
+    const b=el.querySelector('#bkMes'); if(b)b.addEventListener('click',()=>obreBreakdownMes(backMes,camp));
+    bindResumLinks(el);});}
+/* ---- Detall del total del MES: per setmanes, i cada setmana es pot obrir línia a línia ---- */
+function kpiGridMes(pars,mes){return '<div class="kpis">'+pars.map(([l,v,camp])=>'<div class="kpi'+(camp?' clickable':'')+'"'+(camp?' data-mk="'+mes+'|'+camp+'"':'')+'><div class="l">'+l+(camp?' <span class="muted">›</span>':'')+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
+function bindMk(root){(root||document).querySelectorAll('[data-mk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));}
+function breakdownMesHTML(mes,camp){
+  if(camp==='dcc'){ // Despeses c/c van per mes natural (com la casella), no per setmanes
+    const p=clauMes(mes);
+    const movs=Y().cc.filter(m=>m.catId==='despcc'&&m.estat!=='Cancelat'&&m.data&&m.data.startsWith(p)).sort((a,b)=>a.data<b.data?-1:1);
+    let h='<div class="scrollx"><table><thead><tr><th>Data</th><th>Concepte</th><th class="n">Import</th></tr></thead><tbody>';
+    let tot=0;
+    movs.forEach(m=>{tot+=num(m.debe);h+=`<tr><td>${dataCA(m.data)}</td><td>${esc(m.concepte||'')}</td><td class="n">${eur0(num(m.debe))}</td></tr>`;});
+    if(!movs.length)h+='<tr><td colspan="3" class="muted">Cap despesa c/c aquest mes.</td></tr>';
+    h+=`<tr class="total"><td colspan="2">Total ${MESOS[mes]}</td><td class="n">${eur0(tot)}</td></tr></tbody></table></div>`;
+    return h;
+  }
+  const weeks=setmanesDelMes(parseInt(S.activeYear),mes);
+  let h='<div class="scrollx"><table><thead><tr><th>Setmana</th><th class="n">'+CAMP_NOM[camp]+'</th></tr></thead><tbody>';
+  let tot=0;
+  weeks.forEach((w,i)=>{
+    const v=totalsRang(w)[camp]; tot+=v;
+    h+=`<tr class="clickable" data-wkm="${w[0]}|${camp}|${mes}"><td>Setm. ${i+1} · ${dataCA(w[0])}–${dataCA(w[5])}</td><td class="n">${eur0(v)}</td></tr>`;
+  });
+  if(camp==='rec'){const cs=comissioMesStored(mes);if(cs){tot=r2(tot-cs);h+=`<tr class="muted"><td>− Comissió TPV del mes (manual)</td><td class="n">${eur0(-cs)}</td></tr>`;}}
+  h+=`<tr class="total"><td>Total ${MESOS[mes]}</td><td class="n">${eur0(tot)}</td></tr></tbody></table></div>`;
+  h+='<p class="muted">Clica una setmana per veure el detall línia a línia.</p>';
+  return h;
+}
+function obreBreakdownMes(mes,camp){modal(mTitle(CAMP_NOM[camp]+' · '+MESOS[mes]+' '+S.activeYear)+breakdownMesHTML(mes,camp),el=>{
+  el.querySelectorAll('[data-wkm]').forEach(x=>x.addEventListener('click',()=>{const p=x.dataset.wkm.split('|');obreBreakdownSetmana(p[0],p[1],parseInt(p[2]));}));
+  bindResumLinks(el);});}
 
 /* ================= VISTA: DIETARI (mes per setmanes) ================= */
 function barMes(mes,vistaNom){
@@ -675,8 +711,8 @@ function vDietari(){
     h+='</div>';
   });
   const t=totalsMes(mes), dcc=despCCMes(mes), comMes=comissioMes(mes), comStored=comissioMesStored(mes);
-  h+='<div class="card"><h3>Total del mes</h3>'+
-    kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)],['Despeses c/c',eur0(dcc)],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']])+
+  h+='<div class="card"><h3>Total del mes <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d\'on surt)</span></h3>'+
+    kpiGridMes([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dcc),'dcc'],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']],mes)+
     (comStored?'<p class="muted" style="margin:6px 2px 0">La recaptació és la suma de les setmanes ('+eur0(t.rec+comStored)+') menys la comissió TPV del mes ('+eur0(comStored)+').</p>':'')+'</div>';
   h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Comissió TPV del mes</h3><button class="small" data-editcom="'+mes+'">Edita</button></div>'+
     kpiGrid([['Comissió TPV',eur0(comMes)],['% comissió',t.tpv?(100*comMes/t.tpv).toFixed(1)+' %':'—'],['TPV brut',eur0(t.tpv)],['TPV net',eur0(t.tpv-comMes)]])+'</div>';
@@ -691,8 +727,11 @@ function bindDietari(){
   document.querySelectorAll('[data-tancset]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();go('tancament',{tancSet:b.dataset.tancset,mes:ctx.mes});}));
   document.querySelectorAll('[data-dsub]').forEach(b=>b.addEventListener('click',()=>go('dietari',{...ctx,sub:b.dataset.dsub})));
   document.querySelectorAll('[data-editcom]').forEach(b=>b.addEventListener('click',()=>{
-    const mes=parseInt(b.dataset.editcom); const actual=comissioMesStored(mes);
-    const v=prompt('Comissió TPV de '+MESOS[mes]+' '+S.activeYear+' (deixa-ho buit per calcular-la del banc):', actual!=null?actual:'');
+    const mes=parseInt(b.dataset.editcom); const actual=comissioMesStored(mes); const auto=comissioAutoMes(mes);
+    const msg='Comissió TPV manual de '+MESOS[mes]+' '+S.activeYear+
+      (auto?'\n\nDel banc ja se sumen '+eur0(auto)+' automàticament (des del 22-07). Aquí posa només la part manual (fins al 21-07).':'')+
+      '\n\nDeixa-ho buit per no afegir cap comissió manual.';
+    const v=prompt(msg, actual!=null?actual:'');
     if(v===null)return;
     if(!Y().comTpvMes)Y().comTpvMes={};
     const s=v.trim();
@@ -700,6 +739,7 @@ function bindDietari(){
     save(); go('dietari',{...ctx,mes});
   }));
   bindWk();
+  bindMk();
 }
 
 /* ================= VISTA: TANCAMENT SETMANAL (dissabte) ================= */
