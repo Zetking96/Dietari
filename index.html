@@ -1133,21 +1133,24 @@ function vCompra(type){
     if(!names.length)h+='<div class="card muted">Encara no hi ha productes. Afegeix compres per veure el resum.</div>';
     else{
       h+=`<div class="card tight"><div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
-      names.forEach(nm=>{const ls=compraLines(type).filter(p=>p.producte===nm);const q=ls.reduce((s,p)=>s+p.qty,0),im=ls.reduce((s,p)=>s+p.imp,0);
+      let gq=0,gim=0;
+      names.forEach(nm=>{const ls=compraLines(type).filter(p=>p.producte===nm);const q=ls.reduce((s,p)=>s+p.qty,0),im=ls.reduce((s,p)=>s+p.imp,0);gq+=q;gim+=im;
         h+=`<tr class="clickable" data-prodresum="${type}|${esc(nm)}"><td>${esc(nm)}</td><td class="n">${q.toLocaleString('ca-ES')}</td><td class="n">${eur0(im)}</td><td class="n">${q?(im/q).toFixed(2):'—'}</td></tr>`;});
-      h+='</tbody></table></div></div><div class="muted" style="font-size:.8rem">Clica un producte per veure el detall complet.</div>';
+      h+=`<tr class="total"><td>Total (mitjana ponderada)</td><td class="n">${gq.toLocaleString('ca-ES')}</td><td class="n">${eur0(gim)}</td><td class="n">${gq?(gim/gq).toFixed(2):'—'}</td></tr>`;
+      h+='</tbody></table></div></div><div class="muted" style="font-size:.8rem">Clica un producte per veure el detall complet. El €/'+cfg.unitLab+' total és la mitjana ponderada pels '+cfg.qtyLab.toLowerCase()+' (import total ÷ '+cfg.qtyLab.toLowerCase()+' totals).</div>';
     }
   } else {
+    const pk=(im,q)=>q?(im/q).toFixed(2):'—';
     const tq={};invs.forEach(r=>{const qn=quatri(r.data);if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraTotal(r);}});
-    h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th></tr></thead><tbody>`;
-    let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td></tr>`;}});
-    h+=`<tr class="total"><td>Any</td><td class="n">${tq0.toLocaleString('ca-ES')}</td><td class="n">${eur0(ti0)}</td></tr></tbody></table></div>`;
+    h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
+    let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td><td class="n">${pk(tq[qn].imp,tq[qn].q)}</td></tr>`;}});
+    h+=`<tr class="total"><td>Any</td><td class="n">${tq0.toLocaleString('ca-ES')}</td><td class="n">${eur0(ti0)}</td><td class="n">${pk(ti0,tq0)}</td></tr></tbody></table></div>`;
     const tm=Array.from({length:12},()=>({q:0,imp:0}));
     invs.forEach(r=>{if(r.data){const m=parseInt(r.data.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraTotal(r);}}});
-    h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th></tr></thead><tbody>`;
+    h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let am=0,ai=0;
-    for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${tm[m].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tm[m].imp)}</td></tr>`;}}
-    h+=`<tr class="total"><td>Any</td><td class="n">${am.toLocaleString('ca-ES')}</td><td class="n">${eur0(ai)}</td></tr></tbody></table></div></div>`;
+    for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${tm[m].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tm[m].imp)}</td><td class="n">${pk(tm[m].imp,tm[m].q)}</td></tr>`;}}
+    h+=`<tr class="total"><td>Any</td><td class="n">${am.toLocaleString('ca-ES')}</td><td class="n">${eur0(ai)}</td><td class="n">${pk(ai,am)}</td></tr></tbody></table></div></div>`;
   }
   return h;
 }
@@ -1335,9 +1338,9 @@ function vOlives(){
   const tq=[0,0,0],tqq=[0,0,0];let ta=0,taq=0;
   Y().olivesCompres.forEach(c=>{if(!c.set)return;const q=Math.floor(olMes(c.set)/4);tq[q]+=num(c.imp);tqq[q]+=num(c.quant);ta+=num(c.imp);taq+=num(c.quant);});
   const QN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
-  h+='<div class="card"><h3>Totals de l\'any</h3><table><thead><tr><th>Període</th><th class="n">Quant.</th><th class="n">Import</th></tr></thead><tbody>';
-  [0,1,2].forEach(q=>{h+=`<tr><td>${QN[q]}</td><td class="n">${tqq[q].toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q])}</td></tr>`;});
-  h+=`<tr class="total"><td>Any ${S.activeYear}</td><td class="n">${taq.toLocaleString('ca-ES')}</td><td class="n">${eur0(ta)}</td></tr></tbody></table></div>`;
+  h+='<div class="card"><h3>Totals de l\'any</h3><table><thead><tr><th>Període</th><th class="n">Quant.</th><th class="n">Import</th><th class="n">€/kg</th></tr></thead><tbody>';
+  [0,1,2].forEach(q=>{h+=`<tr><td>${QN[q]}</td><td class="n">${tqq[q].toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q])}</td><td class="n">${pkg(tq[q],tqq[q])}</td></tr>`;});
+  h+=`<tr class="total"><td>Any ${S.activeYear}</td><td class="n">${taq.toLocaleString('ca-ES')}</td><td class="n">${eur0(ta)}</td><td class="n">${pkg(ta,taq)}</td></tr></tbody></table></div>`;
   h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Graella anual</h3><button class="small" id="olGrid">${ctx.olGrid?'Amaga':'Mostra'}</button></div>`;
   if(ctx.olGrid)h+=olGraellaHTML();
   h+='</div>';
