@@ -81,6 +81,10 @@ td.n,th.n{text-align:right; white-space:nowrap;}
 tr.total td{font-weight:700; border-top:2px solid var(--linia-2); background:#FBF9F4;}
 tr.clickable{cursor:pointer;}
 tr.clickable:active{background:#F2EEE5;}
+td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted;}
+.kpi.clickable{cursor:pointer;}
+.kpi.clickable:active{background:#F2EEE5;}
+.kpi.clickable .v{text-decoration:underline dotted;}
 .scrollx{overflow-x:auto; -webkit-overflow-scrolling:touch;}
 .pos{color:var(--verd);} .neg{color:var(--vermell);} .pend{color:var(--pendent); font-weight:600;}
 .muted{color:var(--tinta-2); font-size:.82rem;}
@@ -359,8 +363,10 @@ function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
 /* TPV: el net és l'ingrés real al banc (categoria TPV) d'aquell dia. Si encara no n'hi ha, s'usa el brut provisional. Comissió = brut − net */
 function tpvBancDia(ds){if(!ds||ds<VINCLES_DES)return 0;const c=ccCatByRole('tpv');if(!c)return 0;return Y().cc.filter(m=>m.catId===c.id&&m.estat!=='Cancelat'&&(m.tpvData||m.data)===ds).reduce((s,m)=>s+num(m.haber),0);}
-function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0);}
-function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:0;}
+/* TPV net = brut − comissió. Si hi ha ingrés al banc (des del 22-07) es fa servir aquell; si no,
+   es fa servir la comissió desada al dia (d.comTpv), que ve del resum de l'Excel repartida per dia. */
+function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0)-num(d?d.comTpv:0);}
+function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:num(d?d.comTpv:0);}
 function comissioTpvRang(isos){return (isos||[]).reduce((s,ds)=>s+comissioTpvDia(dia(ds),ds),0);}
 function tpvBrutRang(isos){return (isos||[]).reduce((s,ds)=>{const d=dia(ds);return s+(d?num(d.tpv):0);},0);}
 function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+tpvNetDia(d,ds)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
@@ -492,7 +498,8 @@ function bindAvui(){
   const syncLines=()=>{['fp','fpl','desp'].forEach(k=>{avuiLines[k]=readBlock(k);});};
   const renderBlock=key=>{const cap=key.charAt(0).toUpperCase()+key.slice(1);document.getElementById('blk'+cap).innerHTML=lineBlockHTML(key);};
   const recalc=()=>{
-    const tpvBrut=num($('#f_tpv').value), tpvBanc=tpvBancDia(ds0), tpvNet=tpvBanc>0?tpvBanc:tpvBrut;
+    const dPrev=dia(ds0), comImp=dPrev?num(dPrev.comTpv):0;
+    const tpvBrut=num($('#f_tpv').value), tpvBanc=tpvBancDia(ds0), tpvNet=tpvBanc>0?tpvBanc:tpvBrut-comImp;
     let r=num($('#f_ef').value)+tpvNet;
     ['fp','fpl','desp'].forEach(key=>{let s=0;
       document.querySelectorAll('.lrow[data-k="'+key+'"]').forEach(row=>{
@@ -502,8 +509,12 @@ function bindAvui(){
     r+=factDiaRec(ds0)+despCCDiaRec(ds0);
     $('#recVal').textContent=eur0(r);
     const info=$('#tpvInfo');
-    if(info){const com=tpvBrut-tpvBanc, pct=tpvBrut?(100*com/tpvBrut).toFixed(1):'0';
-      info.textContent=tpvBanc>0?('TPV net del banc: '+eur0(tpvBanc)+' · comissió: '+eur0(com)+' ('+pct+'%)'):(tpvBrut?'TPV en brut (provisional, encara sense ingrés al banc)':'');}
+    if(info){
+      if(tpvBanc>0){const com=tpvBrut-tpvBanc, pct=tpvBrut?(100*com/tpvBrut).toFixed(1):'0';
+        info.textContent='TPV net del banc: '+eur0(tpvBanc)+' · comissió: '+eur0(com)+' ('+pct+'%)';}
+      else if(comImp>0){const pct=tpvBrut?(100*comImp/tpvBrut).toFixed(1):'0';
+        info.textContent='TPV net: '+eur0(tpvBrut-comImp)+' · comissió (resum Excel): '+eur0(comImp)+' ('+pct+'%)';}
+      else info.textContent=tpvBrut?'TPV en brut (provisional, encara sense ingrés al banc)':'';}
   };
   ['f_ef','f_tpv'].forEach(id=>$('#'+id).addEventListener('input',recalc));
   // Delegació d'esdeveniments al card (sobreviu als re-renders dels blocs)
@@ -546,9 +557,11 @@ function bindAvui(){
     syncLines();
     const netLines=arr=>arr.map(l=>({imp:numOrNull(l.imp),c:(l.c||'').trim(),rec:!!l.rec}))
       .filter(l=>l.imp!=null||l.c).map(l=>({imp:l.imp==null?0:l.imp,c:l.c,rec:l.rec}));
+    const prevDia=Y().dies[ds];
     const d={ef:numOrNull($('#f_ef').value),tpv:numOrNull($('#f_tpv').value),
       fpLines:netLines(avuiLines.fp),fplLines:netLines(avuiLines.fpl),despLines:netLines(avuiLines.desp),
       obs:$('#f_obs').value.trim()};
+    if(prevDia&&prevDia.comTpv!=null)d.comTpv=prevDia.comTpv;
     if(!diaTeRes(d)){delete Y().dies[ds];}
     else Y().dies[ds]=d;
     save();
@@ -559,10 +572,71 @@ function bindAvui(){
   if(setm){
     const t=totalsRang(setm), dccSet=setm.reduce((s,ds)=>s+despCCDia(ds).reduce((a,m)=>a+num(m.debe),0),0);
     $('#resumSetmanaAvui').innerHTML='<h3>Setmana ('+dataCA(setm[0])+' – '+dataCA(setm[setm.length-1])+')</h3>'+
-      kpiGrid([['Recaptació',eur0(t.rec)],['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)],['Despeses c/c',eur0(dccSet)]]);
+      kpiGridWk([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dccSet),'dcc']],setm[0])+
+      '<p class="muted" style="margin:6px 2px 0">Clica una xifra per veure d\'on surt.</p>';
+    bindWk($('#resumSetmanaAvui'));
   } else $('#resumSetmanaAvui').remove();
 }
 function kpiGrid(pars){return '<div class="kpis">'+pars.map(([l,v])=>'<div class="kpi"><div class="l">'+l+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
+/* KpiGrid amb cel·les clicables: cada parell pot dur un 3r element 'camp' que obre el detall setmanal */
+function kpiGridWk(pars,monIso){return '<div class="kpis">'+pars.map(([l,v,camp])=>'<div class="kpi'+(camp?' clickable':'')+'"'+(camp?' data-wk="'+monIso+'|'+camp+'"':'')+'><div class="l">'+l+(camp?' <span class="muted">›</span>':'')+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
+function bindWk(root){(root||document).querySelectorAll('[data-wk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.wk.split('|');obreBreakdownSetmana(p[0],p[1]);}));}
+/* ---- Detall d'on surt cada xifra del resum setmanal ---- */
+const CAMP_NOM={ef:'Efectiu',tpv:'TPV',rec:'Recaptació',desp:'Despeses',fp:'Fp',fpl:'FpL',dcc:'Despeses c/c'};
+function liniesCamp(ds,camp){
+  const d=dia(ds); const out=[];
+  const catOl=id=>{const p=(Y().olivesCat||[]).find(x=>x.id===id);return p?p.nom:'oliva';};
+  if(camp==='ef'){ if(d&&d.ef!=null)out.push({desc:'Efectiu',imp:num(d.ef)}); }
+  else if(camp==='tpv'){
+    if(d&&d.tpv!=null){out.push({desc:'TPV brut',imp:num(d.tpv)});
+      const c=comissioTpvDia(d,ds); if(c)out.push({desc:'Comissió TPV',imp:-c,muted:true});}
+  }
+  else if(camp==='fp'){
+    (d&&d.fpLines||[]).forEach(l=>out.push({desc:l.c||'Fp del dia',imp:num(l.imp),rec:!!l.rec}));
+    factDia(ds).filter(f=>factBlock(f)==='fp').forEach(f=>out.push({desc:'Factura #'+(f.num??'')+' '+(f.empresa||f.concepte||''),imp:num(f.imp),rec:!!f.recDia}));
+    (Y().olivesCompres||[]).filter(c=>c.bloc==='fp'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
+  }
+  else if(camp==='fpl'){
+    (d&&d.fplLines||[]).forEach(l=>out.push({desc:l.c||'FpL del dia',imp:num(l.imp),rec:!!l.rec}));
+    factDia(ds).filter(f=>factBlock(f)==='fpl').forEach(f=>out.push({desc:'Factura #'+(f.num??'')+' '+(f.empresa||f.concepte||''),imp:num(f.imp),rec:!!f.recDia}));
+    (Y().olivesCompres||[]).filter(c=>c.bloc==='fpl'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
+  }
+  else if(camp==='desp'){
+    (d&&d.despLines||[]).forEach(l=>out.push({desc:l.c||'Despeses del dia',imp:num(l.imp),rec:!!l.rec}));
+    factDia(ds).filter(f=>factBlock(f)==='desp').forEach(f=>out.push({desc:'Factura #'+(f.num??'')+' '+(f.empresa||f.concepte||''),imp:num(f.imp),rec:!!f.recDia}));
+  }
+  else if(camp==='dcc'){ despCCDia(ds).forEach(m=>out.push({desc:m.concepte||'Despesa c/c',imp:num(m.debe)})); }
+  else if(camp==='rec'){
+    if(d&&d.ef)out.push({desc:'Efectiu',imp:num(d.ef)});
+    const net=tpvNetDia(d,ds), com=comissioTpvDia(d,ds);
+    if(net||com)out.push({desc:'TPV net'+(com?' (brut '+eur0(d?num(d.tpv):0)+' − comissió '+eur0(com)+')':''),imp:net});
+    (d&&d.fpLines||[]).filter(l=>l.rec).forEach(l=>out.push({desc:'Fp · '+(l.c||'del dia'),imp:num(l.imp)}));
+    (d&&d.fplLines||[]).filter(l=>l.rec).forEach(l=>out.push({desc:'FpL · '+(l.c||'del dia'),imp:num(l.imp)}));
+    (d&&d.despLines||[]).filter(l=>l.rec).forEach(l=>out.push({desc:'Despeses · '+(l.c||'del dia'),imp:num(l.imp)}));
+    factDia(ds).filter(f=>f.recDia).forEach(f=>out.push({desc:'Factura #'+(f.num??''),imp:num(f.imp)}));
+    despCCDia(ds).filter(m=>m.recDia).forEach(m=>out.push({desc:'c/c · '+(m.concepte||''),imp:num(m.debe)}));
+  }
+  return out;
+}
+function breakdownSetmanaHTML(w,camp){
+  const showRec=(camp==='fp'||camp==='fpl'||camp==='desp');
+  let h='<div class="scrollx"><table><thead><tr><th>Dia</th><th>D\'on surt</th><th class="n">Import</th>'+(showRec?'<th>rec</th>':'')+'</tr></thead><tbody>';
+  let tot=0, hi=false;
+  w.forEach(ds=>{
+    const ls=liniesCamp(ds,camp); if(!ls.length)return; hi=true;
+    const dow=(new Date(ds+'T12:00').getDay()+6)%7;
+    ls.forEach((l,i)=>{ if(!l.muted)tot+=l.imp;
+      h+=`<tr${l.muted?' class="muted"':''}><td>${i===0?DIES[dow]+' '+parseInt(ds.slice(8)):''}</td><td>${esc(l.desc)}</td><td class="n">${eur0(l.imp)}</td>${showRec?'<td>'+(l.rec===true?'sí':l.rec===false?'no':'')+'</td>':''}</tr>`;
+    });
+  });
+  if(!hi)h+='<tr><td colspan="'+(showRec?4:3)+'" class="muted">Cap moviment aquesta setmana.</td></tr>';
+  h+=`<tr class="total"><td colspan="2">Total setmana</td><td class="n">${eur0(tot)}</td>${showRec?'<td></td>':''}</tr></tbody></table></div>`;
+  if(camp==='rec')h+='<p class="muted">Recaptació = per cada dia: efectiu + TPV net (brut − comissió) + línies de Fp/FpL/Despeses marcades «rec» + factures i despeses c/c marcades «rec».</p>';
+  else if(camp==='tpv')h+='<p class="muted">El TPV brut compta sencer al total de TPV. La comissió es resta a la recaptació (TPV net = brut − comissió).</p>';
+  else if(showRec)h+='<p class="muted">Les línies «rec: no» (factures grosses/talons de la setmana) sumen al total de '+CAMP_NOM[camp]+' però no a la recaptació.</p>';
+  return h;
+}
+function obreBreakdownSetmana(monIso,camp){const w=setmanaDe(monIso);modal(mTitle(CAMP_NOM[camp]+' · setmana '+dataCA(w[0])+' – '+dataCA(w[5]))+breakdownSetmanaHTML(w,camp),el=>bindResumLinks(el));}
 
 /* ================= VISTA: DIETARI (mes per setmanes) ================= */
 function barMes(mes,vistaNom){
@@ -591,7 +665,7 @@ function vDietari(){
         <td class="n">${(d||factDia(ds).length)?eur0(recDia(d,ds)):''}</td><td class="n">${vDesp?eur0(vDesp)+(d&&lineRec(d.despLines)?'*':''):''}</td>
         <td class="n">${vFp?eur0(vFp)+(d&&lineRec(d.fpLines)?'*':''):''}</td><td class="n">${vFpl?eur0(vFpl)+(d&&lineRec(d.fplLines)?'*':''):''}</td></tr>`;
     });
-    h+=`<tr class="total"><td>Setm. ${i+1}</td><td class="n">${eur0(t.ef)}</td><td class="n">${eur0(t.tpv)}</td><td class="n">${eur0(t.rec)}</td><td class="n">${eur0(t.desp)}</td><td class="n">${eur0(t.fp)}</td><td class="n">${eur0(t.fpl)}</td></tr>`;
+    h+=`<tr class="total"><td>Setm. ${i+1}</td><td class="n clickable" data-wk="${w[0]}|ef">${eur0(t.ef)}</td><td class="n clickable" data-wk="${w[0]}|tpv">${eur0(t.tpv)}</td><td class="n clickable" data-wk="${w[0]}|rec">${eur0(t.rec)}</td><td class="n clickable" data-wk="${w[0]}|desp">${eur0(t.desp)}</td><td class="n clickable" data-wk="${w[0]}|fp">${eur0(t.fp)}</td><td class="n clickable" data-wk="${w[0]}|fpl">${eur0(t.fpl)}</td></tr>`;
     h+='</tbody></table></div>';
     const sat=w[5], tc=Y().tanc[sat]||null;
     h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:.88rem">
@@ -617,6 +691,7 @@ function bindDietari(){
   document.querySelectorAll('tr[data-dia]').forEach(tr=>tr.addEventListener('click',()=>go('avui',{data:tr.dataset.dia})));
   document.querySelectorAll('[data-tancset]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();go('tancament',{tancSet:b.dataset.tancset,mes:ctx.mes});}));
   document.querySelectorAll('[data-dsub]').forEach(b=>b.addEventListener('click',()=>go('dietari',{...ctx,sub:b.dataset.dsub})));
+  bindWk();
 }
 
 /* ================= VISTA: TANCAMENT SETMANAL (dissabte) ================= */
@@ -631,8 +706,8 @@ function vTancament(){
   return `<h2>Tancament setmana</h2>
   <div class="card"><div class="muted">Dl–Ds · ${dataCAL(w[0])} → ${dataCAL(w[5])}</div></div>
   <div class="card">
-    <h3>Totals calculats</h3>
-    ${kpiGrid([['Efectiu',eur0(t.ef)],['TPV',eur0(t.tpv)],['Recaptació',eur0(t.rec)],['Despeses',eur0(t.desp)],['Fp',eur0(t.fp)],['FpL',eur0(t.fpl)],['Despeses c/c',eur0(dcc)],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']])}
+    <h3>Totals calculats <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d'on surt)</span></h3>
+    ${kpiGridWk([['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Recaptació',eur0(t.rec),'rec'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dcc),'dcc'],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']],w[0])}
   </div>
   <div class="card">
     <h3>Saldos comptats (dissabte)</h3>
@@ -657,6 +732,7 @@ function bindTancament(){
   const upd=()=>{const i=numOrNull($('#t_ingres').value);
     $('#comVal').textContent=i==null?'—':eur0(t.tpv-i);};
   $('#t_ingres').addEventListener('input',upd);upd();
+  bindWk();
   $('#desaTanc').addEventListener('click',()=>{
     Y().tanc[k]={caixa:numOrNull($('#t_caixa').value),banc:numOrNull($('#t_banc').value),
       ingresTpv:numOrNull($('#t_ingres').value),notes:$('#t_notes').value.trim()};
