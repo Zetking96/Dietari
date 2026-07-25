@@ -335,11 +335,18 @@ function factPags(f){
   if(f.estat==='Pagat'&&f.dataPagISO)return [{data:f.dataPagISO,talo:(f.talo||'').trim(),imp:num(f.imp)}];
   return [];
 }
-function factPagat(f){return factPags(f).reduce((s,p)=>s+num(p.imp),0);}
-/* Estat real: Pagat si els pagaments cobreixen l'import, Parcial si en cobreixen una part, si no Pendent */
+/* Un pagament amb data futura (taló emès a venir) encara NO està pagat: queda pendent fins al dia. */
+function factPagsFets(f){const h=hui();return factPags(f).filter(p=>p.data<=h);}
+function factPagsPrevistos(f){const h=hui();return factPags(f).filter(p=>p.data>h);}
+function factPagat(f){return factPagsFets(f).reduce((s,p)=>s+num(p.imp),0);}
+function factPrevist(f){return factPagsPrevistos(f).reduce((s,p)=>s+num(p.imp),0);}
+/* Estat real: Pagat si el que ja s'ha pagat cobreix l'import, Parcial si en cobreix una part,
+   i Pendent si encara no s'ha pagat res (encara que hi hagi pagaments programats per més endavant). */
 function factEstat(f){
-  if(Array.isArray(f.pagaments)&&f.pagaments.length){const pg=factPagat(f),tot=num(f.imp);return pg<=0?'Pendent':(pg+0.005<tot?'Parcial':'Pagat');}
-  return f.estat||'Pendent';
+  const pays=factPags(f);
+  if(!pays.length)return f.estat||'Pendent';
+  const pg=factPagat(f),tot=num(f.imp);
+  return pg<=0?'Pendent':(pg+0.005<tot?'Parcial':'Pagat');
 }
 /* ----- Secció «Pagaments» reutilitzable (formulari de factura i de compra) ----- */
 function paysRowHTML(p){return `<div class="payrow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
@@ -361,8 +368,12 @@ function paysSectionHTML(pays){
 function bindPaysSection(el,totalFn){
   const cont=el.querySelector('.pays-cont'); if(!cont)return ()=>[];
   const read=()=>[...cont.querySelectorAll('.payrow')].map(r=>({data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),imp:numOrNull(r.querySelector('.pay-imp').value)}));
-  const recalc=()=>{const pg=read().reduce((s,p)=>s+num(p.imp),0),tot=num(totalFn());
-    el.querySelector('.pays-sum').textContent=eur0(pg)+(tot?' de '+eur0(tot)+(pg+0.005<tot?' · queda '+eur0(tot-pg):(pg>tot+0.005?' · excés':' ✓')):'');};
+  const recalc=()=>{const arr=read(),h=hui(),tot=num(totalFn());
+    const pg=arr.filter(p=>p.data&&p.data<=h).reduce((s,p)=>s+num(p.imp),0);
+    const pv=arr.filter(p=>p.data&&p.data>h).reduce((s,p)=>s+num(p.imp),0);
+    const sum=pg+pv;
+    el.querySelector('.pays-sum').textContent=eur0(pg)+(tot?' de '+eur0(tot):'')+
+      (pv?' · previst '+eur0(pv):'')+(tot?(sum+0.005<tot?' · falta '+eur0(tot-sum):(sum>tot+0.005?' · excés':(pv?'':' ✓'))):'');};
   const rerender=arr=>{cont.innerHTML=(arr.length?arr:[{data:'',talo:'',imp:''}]).map(paysRowHTML).join('');recalc();};
   cont.addEventListener('input',recalc);
   cont.addEventListener('click',e=>{const d=e.target.closest('.pay-del');if(!d)return;
@@ -389,9 +400,11 @@ function aplicaPagaments(f,pagaments){
 /* Pagaments de factures fets un dia concret (només des del 22-07) */
 /* Text resum de l'estat de pagament d'una factura, per a les llistes */
 function factPagInfo(f){
-  const est=factEstat(f), pays=factPags(f);
-  if(est==='Pendent'||!pays.length)return '';
-  if(est==='Parcial')return ' · pagat '+eur0(factPagat(f))+' de '+eur0(num(f.imp))+(pays.length>1?' ('+pays.length+' pag.)':'');
+  const est=factEstat(f), pays=factPags(f), prev=factPagsPrevistos(f);
+  const previst=prev.length?' · previst '+prev.map(p=>dataCA(p.data)).join(', '):'';
+  if(!pays.length)return '';
+  if(est==='Pendent')return previst;
+  if(est==='Parcial')return ' · pagat '+eur0(factPagat(f))+' de '+eur0(num(f.imp))+previst;
   return ' · pagada '+(pays.length>1?'en '+pays.length+' pagaments':dataCA(pays[pays.length-1].data))+(f.recDia?' (rec)':'');
 }
 function factPagsDia(ds){
@@ -1174,8 +1187,8 @@ function provList(){
 }
 /* ===== Compres (bacallà i conserva): factura amb diversos productes ===== */
 const COMPRA_CFG={
-  bacalla:{qtyLab:'Kg',unitLab:'kg',concepte:'Bacallà',dataLab:'Data pagament (taló)',titol:'bacallà'},
-  conserva:{qtyLab:'Unitats',unitLab:'unitat',concepte:'Conserva',dataLab:'Data',titol:'conserva i altres'}
+  bacalla:{qtyLab:'Kg',unitLab:'kg',concepte:'Bacallà',titol:'bacallà'},
+  conserva:{qtyLab:'Unitats',unitLab:'unitat',concepte:'Conserva',titol:'conserva i altres'}
 };
 function compraTotal(r){return (r.productes||[]).reduce((s,p)=>s+num(p.imp),0);}
 function compraQty(r){return (r.productes||[]).reduce((s,p)=>s+num(p.qty),0);}
@@ -1316,18 +1329,15 @@ function formCompra(type,r){
   modal(mTitle(nou?'Nova factura de '+cfg.titol:'Edita factura')+`
     <label>Proveïdor</label><input id="cp_prov" list="dl_provs" value="${esc(r.prov||'')}">
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
-    <div class="row2">
-      <div><label>${cfg.dataLab}</label><input type="date" id="cp_data" value="${r.data||''}"></div>
-      <div><label>Categoria al dietari</label>${diaCatSelect('cp_cat',r.diaCat)}</div>
-    </div>
+    <label>Categoria al dietari</label>${diaCatSelect('cp_cat',r.diaCat)}
     <datalist id="${dlId}">${dlOpts(prodNames(type))}</datalist>
     <h3>Productes</h3>
     <div id="cp_prods">${prods.map(prowHTML).join('')}</div>
     <button class="small" id="cp_add" type="button">+ producte</button>
     <div class="recline"><span class="l">Total factura</span><span class="v num" id="cp_tot">—</span></div>
-    ${paysSectionHTML(fLig?factPags(fLig).map(p=>({...p})):[])}
+    ${paysSectionHTML(((ps)=>ps.length?ps:(r.data?[{data:r.data,talo:'',imp:compraTotal(r)}]:[]))(fLig?factPags(fLig).map(p=>({...p})):[]))}
     ${pdfFormatHTML(fLig)}
-    <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. La data de la factura és la del pagament: si en poses aquí, manen elles (cada una surt al dietari el seu dia i la primera és la data de la factura). Si no en poses cap, es fa servir la data de dalt.</p>
+    <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. La data de la factura és la del pagament. Mentre no hi hagi cap pagament fet, la factura surt com a <b>pendent</b> (un taló amb data futura també queda pendent fins que arribi el dia).</p>
     <button class="primary" id="cp_desa">Desa</button>
     ${nou?'':'<button class="danger" id="cp_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
@@ -1345,14 +1355,14 @@ function formCompra(type,r){
       const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null);
       const pagaments=readPagaments();
       if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
-      const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:el.querySelector('#cp_data').value,diaCat:el.querySelector('#cp_cat').value,productes:productes};
+      // la data de la compra és la del primer pagament (no hi ha cap altra data)
+      const dataPag=(primerPagament(pagaments)||{}).data||'';
+      const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:dataPag,diaCat:el.querySelector('#cp_cat').value,productes:productes};
       if(r.id){const i=Y()[type].findIndex(x=>x.id===r.id);Y()[type][i]=obj;}else Y()[type].push(obj);
       const noms=productes.map(p=>p.producte).filter(Boolean);
-      // si hi ha pagaments, manen ells; si no, s'usa la data de la compra (comportament de sempre)
-      syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:(primerPagament(pagaments)||{}).data||obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
+      syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:dataPag,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
       const fNou=Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===obj.id);
-      // sense pagaments, la factura manté el comportament de sempre (data de la compra)
-      if(fNou){if(pagaments.length)aplicaPagaments(fNou,pagaments);else delete fNou.pagaments;await aplicaPdf(fNou);}
+      if(fNou){aplicaPagaments(fNou,pagaments);await aplicaPdf(fNou);}
       save();tancaModal();render();
     });
     const del=el.querySelector('#cp_del');
