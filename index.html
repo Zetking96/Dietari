@@ -1137,6 +1137,10 @@ function formFactura(f){
         mode:el.querySelector('#x_mode').value,recDia:!!f.recDia,
         obs:el.querySelector('#x_obs').value.trim(),format:f.format||'',pdf:f.pdf||''};
       if(obj.imp==null){alert('Falta l\'import total.');return;}
+      if(obj.num!=null){ // avisa si el número ja el fa servir una altra factura
+        const dup=Y().factures.find(x=>num(x.num)===obj.num&&x.id!==obj.id);
+        if(dup&&!confirm('Ja hi ha una altra factura amb el número '+obj.num+(dup.empresa?' ('+dup.empresa+')':'')+'.\n\nVols desar-la igualment amb aquest número?'))return;
+      }
       aplicaPagaments(obj,pagaments);           // pagaments + estat (Pendent/Parcial/Pagat) + compat
       await aplicaPdf(obj);
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
@@ -1327,6 +1331,7 @@ function formCompra(type,r){
       <button class="small p-del" type="button">✕ treu</button>
     </div></div>`;
   modal(mTitle(nou?'Nova factura de '+cfg.titol:'Edita factura')+`
+    <label>Núm. intern</label><input id="cp_num" class="num" inputmode="numeric" value="${fLig&&fLig.num!=null?fLig.num:nextFacturaNum()}">
     <label>Proveïdor</label><input id="cp_prov" list="dl_provs" value="${esc(r.prov||'')}">
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
     <label>Categoria al dietari</label>${diaCatSelect('cp_cat',r.diaCat)}
@@ -1355,6 +1360,11 @@ function formCompra(type,r){
       const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null);
       const pagaments=readPagaments();
       if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
+      const numFact=numOrNull(el.querySelector('#cp_num').value);
+      if(numFact!=null){ // avisa si el número ja el fa servir una altra factura
+        const dup=Y().factures.find(x=>num(x.num)===numFact&&!(x.auto&&x.srcType===type&&x.srcId===r.id));
+        if(dup&&!confirm('Ja hi ha una altra factura amb el número '+numFact+(dup.empresa?' ('+dup.empresa+')':'')+'.\n\nVols desar-la igualment amb aquest número?'))return;
+      }
       // la data de la compra és la del primer pagament (no hi ha cap altra data)
       const dataPag=(primerPagament(pagaments)||{}).data||'';
       const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:dataPag,diaCat:el.querySelector('#cp_cat').value,productes:productes};
@@ -1362,7 +1372,7 @@ function formCompra(type,r){
       const noms=productes.map(p=>p.producte).filter(Boolean);
       syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:dataPag,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
       const fNou=Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===obj.id);
-      if(fNou){aplicaPagaments(fNou,pagaments);await aplicaPdf(fNou);}
+      if(fNou){if(numFact!=null)fNou.num=numFact;aplicaPagaments(fNou,pagaments);await aplicaPdf(fNou);}
       save();tancaModal();render();
     });
     const del=el.querySelector('#cp_del');
