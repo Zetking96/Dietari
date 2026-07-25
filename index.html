@@ -1626,12 +1626,7 @@ function vResumAnual(){
   let tcom=0; h+='<tr><td>Comissió TPV</td>';
   for(let m=0;m<12;m++){tcom+=comm[m];h+='<td class="n">'+(comm[m]?eur0(comm[m]):'')+'</td>';}
   h+='<td class="n"><b>'+eur0(tcom)+'</b></td></tr>';
-  h+='<tr><td>Coeficient</td>';
-  let tRecC=0,tDenC=0;
-  for(let m=0;m<12;m++){tRecC+=val(m,'rec');tDenC+=val(m,'desp')+val(m,'fp');h+='<td class="n"></td>';}
-  h+=coefCellHTML(tRecC,tDenC,true)+'</tr>';
-  h+='</tbody></table></div>'+
-    '<p class="muted" style="margin:8px 2px 0">Coeficient = (Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100%</p></div>';
+  h+='</tbody></table></div></div>';
   // quatrimestres (4 mesos): Q1 gen–abr, Q2 mai–ago, Q3 set–des
   const KS=['ef','tpv','rec','desp','fp'], KN=['Efectiu','TPV','Recaptació','Despeses (+ c/c)','Fp + FpL'];
   const q=[0,1,2].map(i=>{const ms=[0,1,2,3].map(j=>i*4+j);const o={};KS.forEach(k=>o[k]=ms.reduce((s,m)=>s+val(m,k),0));return o;});
