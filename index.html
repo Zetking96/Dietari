@@ -372,12 +372,18 @@ function bindPaysSection(el,totalFn){
   el.addEventListener('input',e=>{if(!e.target.closest('.pays-cont'))recalc();});
   return ()=>read().filter(p=>p.data||p.imp!=null).map(p=>({data:p.data,talo:p.talo,imp:p.imp==null?0:p.imp}));
 }
-/* Aplica els pagaments a una factura i en recalcula l'estat (i els camps de compat) */
+/* Aplica els pagaments a una factura i en recalcula l'estat. La data de la factura és la del
+   primer pagament (el més antic), no l'ordre en què s'han escrit. */
+function primerPagament(pagaments){
+  const amb=(pagaments||[]).filter(p=>p&&p.data).slice().sort((a,b)=>a.data<b.data?-1:1);
+  return amb.length?amb[0]:null;
+}
 function aplicaPagaments(f,pagaments){
   f.pagaments=pagaments;
   f.estat=factEstat(f);
-  f.dataPagISO=pagaments.length?pagaments[0].data:'';
-  f.talo=pagaments.length?pagaments[0].talo:'';
+  const p0=primerPagament(pagaments);
+  f.dataPagISO=p0?p0.data:'';
+  f.talo=p0?p0.talo:'';
   return f;
 }
 /* Pagaments de factures fets un dia concret (només des del 22-07) */
@@ -1176,12 +1182,12 @@ function compraQty(r){return (r.productes||[]).reduce((s,p)=>s+num(p.qty),0);}
 /* Factura lligada a una compra i pagaments que hi consten */
 function compraFactura(type,id){return Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===id)||null;}
 function compraPags(type,r){const f=r&&r.id?compraFactura(type,r.id):null;return f?factPags(f):[];}
-/* Data efectiva d'una compra: la seva pròpia i, si es paga en diversos terminis sense data pròpia,
-   la del primer pagament. Així no queda «sense data» ni fora dels subtotals. */
+/* Data efectiva d'una compra: SEMPRE la del pagament (la primera, si es paga en diversos terminis).
+   Només si no hi ha cap pagament s'usa la data escrita a la compra. */
 function compraData(type,r){
-  if(r&&r.data)return r.data;
   const ds=compraPags(type,r).map(p=>p.data).filter(Boolean).sort();
-  return ds.length?ds[0]:'';
+  if(ds.length)return ds[0];
+  return (r&&r.data)||'';
 }
 function compraLines(type){return (Y()[type]||[]).flatMap(r=>(r.productes||[]).map(p=>({producte:(p.producte||'').trim(),qty:num(p.qty),imp:num(p.imp),pv:p.pv,prov:r.prov,data:compraData(type,r),invId:r.id})));}
 function prodNames(type){return [...new Set(compraLines(type).map(p=>p.producte).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
@@ -1321,7 +1327,7 @@ function formCompra(type,r){
     <div class="recline"><span class="l">Total factura</span><span class="v num" id="cp_tot">—</span></div>
     ${paysSectionHTML(fLig?factPags(fLig).map(p=>({...p})):[])}
     ${pdfFormatHTML(fLig)}
-    <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. Si no poses cap pagament, es fa servir la data de dalt; si en poses, cada un surt al dietari el seu dia.</p>
+    <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. La data de la factura és la del pagament: si en poses aquí, manen elles (cada una surt al dietari el seu dia i la primera és la data de la factura). Si no en poses cap, es fa servir la data de dalt.</p>
     <button class="primary" id="cp_desa">Desa</button>
     ${nou?'':'<button class="danger" id="cp_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
@@ -1343,7 +1349,7 @@ function formCompra(type,r){
       if(r.id){const i=Y()[type].findIndex(x=>x.id===r.id);Y()[type][i]=obj;}else Y()[type].push(obj);
       const noms=productes.map(p=>p.producte).filter(Boolean);
       // si hi ha pagaments, manen ells; si no, s'usa la data de la compra (comportament de sempre)
-      syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:pagaments.length?pagaments[0].data:obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
+      syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:(primerPagament(pagaments)||{}).data||obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
       const fNou=Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===obj.id);
       // sense pagaments, la factura manté el comportament de sempre (data de la compra)
       if(fNou){if(pagaments.length)aplicaPagaments(fNou,pagaments);else delete fNou.pagaments;await aplicaPdf(fNou);}
