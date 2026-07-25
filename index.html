@@ -341,6 +341,45 @@ function factEstat(f){
   if(Array.isArray(f.pagaments)&&f.pagaments.length){const pg=factPagat(f),tot=num(f.imp);return pg<=0?'Pendent':(pg+0.005<tot?'Parcial':'Pagat');}
   return f.estat||'Pendent';
 }
+/* ----- Secció «Pagaments» reutilitzable (formulari de factura i de compra) ----- */
+function paysRowHTML(p){return `<div class="payrow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
+    <div class="row3">
+      <input type="date" class="pay-data" value="${(p&&p.data)||''}">
+      <input class="pay-talo" placeholder="Taló" value="${esc((p&&p.talo)||'')}">
+      <input class="num pay-imp" inputmode="decimal" placeholder="Import" value="${p&&p.imp!=null&&p.imp!==''?p.imp:''}">
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:4px"><button class="small pay-del" type="button">✕ treu</button></div>
+  </div>`;}
+function paysSectionHTML(pays){
+  return `<h3 style="margin:12px 0 2px">Pagaments</h3>
+    <p class="muted" style="margin:0 0 8px">Es pot pagar en diverses dates; cada pagament té la seva data, taló i import, i surt al dietari el seu dia. Deixa-ho buit si encara està pendent.</p>
+    <div class="pays-cont">${(pays.length?pays:[{data:'',talo:'',imp:''}]).map(paysRowHTML).join('')}</div>
+    <button class="small pays-add" type="button">+ pagament</button>
+    <div class="recline"><span class="l">Pagat</span><span class="v num pays-sum">—</span></div>`;
+}
+/* Enllaça la secció; totalFn() retorna l'import total de la factura. Retorna llegir-pagaments(). */
+function bindPaysSection(el,totalFn){
+  const cont=el.querySelector('.pays-cont'); if(!cont)return ()=>[];
+  const read=()=>[...cont.querySelectorAll('.payrow')].map(r=>({data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),imp:numOrNull(r.querySelector('.pay-imp').value)}));
+  const recalc=()=>{const pg=read().reduce((s,p)=>s+num(p.imp),0),tot=num(totalFn());
+    el.querySelector('.pays-sum').textContent=eur0(pg)+(tot?' de '+eur0(tot)+(pg+0.005<tot?' · queda '+eur0(tot-pg):(pg>tot+0.005?' · excés':' ✓')):'');};
+  const rerender=arr=>{cont.innerHTML=(arr.length?arr:[{data:'',talo:'',imp:''}]).map(paysRowHTML).join('');recalc();};
+  cont.addEventListener('input',recalc);
+  cont.addEventListener('click',e=>{const d=e.target.closest('.pay-del');if(!d)return;
+    const arr=read(),i=[...cont.querySelectorAll('.payrow')].indexOf(d.closest('.payrow'));arr.splice(i,1);rerender(arr);});
+  el.querySelector('.pays-add').addEventListener('click',()=>{const arr=read();arr.push({data:'',talo:'',imp:''});rerender(arr);});
+  recalc();
+  el.addEventListener('input',e=>{if(!e.target.closest('.pays-cont'))recalc();});
+  return ()=>read().filter(p=>p.data||p.imp!=null).map(p=>({data:p.data,talo:p.talo,imp:p.imp==null?0:p.imp}));
+}
+/* Aplica els pagaments a una factura i en recalcula l'estat (i els camps de compat) */
+function aplicaPagaments(f,pagaments){
+  f.pagaments=pagaments;
+  f.estat=factEstat(f);
+  f.dataPagISO=pagaments.length?pagaments[0].data:'';
+  f.talo=pagaments.length?pagaments[0].talo:'';
+  return f;
+}
 /* Pagaments de factures fets un dia concret (només des del 22-07) */
 /* Text resum de l'estat de pagament d'una factura, per a les llistes */
 function factPagInfo(f){
@@ -1050,15 +1089,6 @@ function formFactura(f){
   const nou=!f;
   const numSeg=Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;
   f=f||{num:numSeg,imp:'',concepte:'Bacallà',categoria:'FpL',estat:'Pendent',mode:'Taló',talo:'',dataPagISO:'',recDia:false,empresa:'',obs:'',format:'',pdf:''};
-  const payRowHTML=p=>`<div class="payrow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
-    <div class="row3">
-      <input type="date" class="pay-data" value="${p&&p.data||''}">
-      <input class="pay-talo" placeholder="Taló" value="${esc(p&&p.talo||'')}">
-      <input class="num pay-imp" inputmode="decimal" placeholder="Import" value="${p&&p.imp!=null&&p.imp!==''?p.imp:''}">
-    </div>
-    <div style="display:flex;justify-content:flex-end;margin-top:4px"><button class="small pay-del" type="button">✕ treu</button></div>
-  </div>`;
-  const paysHTML=arr=>(arr.length?arr:[{data:'',talo:'',imp:''}]).map(payRowHTML).join('');
   modal(mTitle(nou?'Nova factura':'Edita factura')+`
     <label>Núm. intern</label><input id="x_num" class="num" inputmode="numeric" value="${f.num??''}">
     <label>Proveïdor</label><input id="x_emp" value="${esc(f.empresa||f.ref||'')}" list="dl_provs">
@@ -1071,39 +1101,24 @@ function formFactura(f){
       <div><label>Categoria</label><select id="x_cat">${F_CATS.map(c=>`<option ${c===f.categoria?'selected':''}>${c}</option>`).join('')}</select></div>
       <div><label>Mode de pagament</label><select id="x_mode">${F_MODES.map(c=>`<option ${c===f.mode?'selected':''}>${c}</option>`).join('')}</select></div>
     </div>
-    <h3 style="margin:12px 0 2px">Pagaments</h3>
-    <p class="muted" style="margin:0 0 8px">Es pot pagar en diverses dates; cada pagament té la seva data, taló i import, i surt al dietari el seu dia. Deixa-ho buit si encara està pendent.</p>
-    <div id="x_pays">${paysHTML(factPags(f).map(p=>({...p})))}</div>
-    <button class="small" id="x_addpay" type="button">+ pagament</button>
-    <div class="recline"><span class="l">Pagat</span><span class="v num" id="x_pagat">—</span></div>
+    ${paysSectionHTML(factPags(f).map(p=>({...p})))}
     ${pdfFormatHTML(f)}
     <label>Observacions</label><textarea id="x_obs">${esc(f.obs||'')}</textarea>
     <button class="primary" id="x_desa">Desa</button>
     ${nou?'':'<button class="danger" id="x_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
-    const cont=el.querySelector('#x_pays');
-    const readPays=()=>[...cont.querySelectorAll('.payrow')].map(r=>({data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),imp:numOrNull(r.querySelector('.pay-imp').value)}));
-    const recalc=()=>{const arr=readPays();const pg=arr.reduce((s,p)=>s+num(p.imp),0);const tot=num(el.querySelector('#x_imp').value);
-      el.querySelector('#x_pagat').textContent=eur0(pg)+(tot?' de '+eur0(tot)+(pg+0.005<tot?' · queda '+eur0(tot-pg):(pg>tot+0.005?' · excés':' ✓')):'');};
-    const rerender=arr=>{cont.innerHTML=paysHTML(arr);recalc();};
-    cont.addEventListener('input',recalc);
-    el.querySelector('#x_imp').addEventListener('input',recalc);
-    cont.addEventListener('click',e=>{const d=e.target.closest('.pay-del');if(!d)return;const arr=readPays();const i=[...cont.querySelectorAll('.payrow')].indexOf(d.closest('.payrow'));arr.splice(i,1);rerender(arr);});
-    el.querySelector('#x_addpay').addEventListener('click',()=>{const arr=readPays();arr.push({data:'',talo:'',imp:''});rerender(arr);});
-    recalc();
+    const readPagaments=bindPaysSection(el,()=>el.querySelector('#x_imp').value);
     const aplicaPdf=bindPdfFormat(el,f);
     el.querySelector('#x_desa').addEventListener('click',async()=>{
-      const pagaments=readPays().filter(p=>p.data||p.imp!=null).map(p=>({data:p.data,talo:p.talo,imp:p.imp==null?0:p.imp}));
+      const pagaments=readPagaments();
       if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
       const obj={id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),
         empresa:el.querySelector('#x_emp').value.trim(),imp:numOrNull(el.querySelector('#x_imp').value),
         concepte:el.querySelector('#x_conc').value,categoria:el.querySelector('#x_cat').value,
-        mode:el.querySelector('#x_mode').value,recDia:!!f.recDia,pagaments:pagaments,
+        mode:el.querySelector('#x_mode').value,recDia:!!f.recDia,
         obs:el.querySelector('#x_obs').value.trim(),format:f.format||'',pdf:f.pdf||''};
       if(obj.imp==null){alert('Falta l\'import total.');return;}
-      obj.estat=factEstat(obj);                 // Pendent / Parcial / Pagat, derivat dels pagaments
-      obj.dataPagISO=pagaments.length?pagaments[0].data:''; // compat amb vistes antigues
-      obj.talo=pagaments.length?pagaments[0].talo:'';
+      aplicaPagaments(obj,pagaments);           // pagaments + estat (Pendent/Parcial/Pagat) + compat
       await aplicaPdf(obj);
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
       save();tancaModal();render();
@@ -1294,8 +1309,9 @@ function formCompra(type,r){
     <div id="cp_prods">${prods.map(prowHTML).join('')}</div>
     <button class="small" id="cp_add" type="button">+ producte</button>
     <div class="recline"><span class="l">Total factura</span><span class="v num" id="cp_tot">—</span></div>
+    ${paysSectionHTML(fLig?factPags(fLig).map(p=>({...p})):[])}
     ${pdfFormatHTML(fLig)}
-    <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. Amb data, surt al dietari aquell dia i suma a la categoria triada.</p>
+    <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. Si no poses cap pagament, es fa servir la data de dalt; si en poses, cada un surt al dietari el seu dia.</p>
     <button class="primary" id="cp_desa">Desa</button>
     ${nou?'':'<button class="danger" id="cp_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
@@ -1307,15 +1323,20 @@ function formCompra(type,r){
     cont.addEventListener('click',e=>{const d=e.target.closest('.p-del');if(!d)return;const arr=readProds();const i=[...cont.querySelectorAll('.prow')].indexOf(d.closest('.prow'));arr.splice(i,1);if(!arr.length)arr.push({producte:'',qty:'',imp:'',pv:''});rerender(arr);});
     el.querySelector('#cp_add').addEventListener('click',()=>{const arr=readProds();arr.push({producte:'',qty:'',imp:'',pv:''});rerender(arr);});
     recalc();
+    const readPagaments=bindPaysSection(el,()=>compraTotal({productes:readProds()}));
     const aplicaPdf=bindPdfFormat(el,fLig);
     el.querySelector('#cp_desa').addEventListener('click',async()=>{
       const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null);
+      const pagaments=readPagaments();
+      if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
       const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:el.querySelector('#cp_data').value,diaCat:el.querySelector('#cp_cat').value,productes:productes};
       if(r.id){const i=Y()[type].findIndex(x=>x.id===r.id);Y()[type][i]=obj;}else Y()[type].push(obj);
       const noms=productes.map(p=>p.producte).filter(Boolean);
-      syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
+      // si hi ha pagaments, manen ells; si no, s'usa la data de la compra (comportament de sempre)
+      syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:pagaments.length?pagaments[0].data:obj.data,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
       const fNou=Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===obj.id);
-      if(fNou)await aplicaPdf(fNou);
+      // sense pagaments, la factura manté el comportament de sempre (data de la compra)
+      if(fNou){if(pagaments.length)aplicaPagaments(fNou,pagaments);else delete fNou.pagaments;await aplicaPdf(fNou);}
       save();tancaModal();render();
     });
     const del=el.querySelector('#cp_del');
