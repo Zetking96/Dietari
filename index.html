@@ -1173,20 +1173,30 @@ const COMPRA_CFG={
 };
 function compraTotal(r){return (r.productes||[]).reduce((s,p)=>s+num(p.imp),0);}
 function compraQty(r){return (r.productes||[]).reduce((s,p)=>s+num(p.qty),0);}
-function compraLines(type){return (Y()[type]||[]).flatMap(r=>(r.productes||[]).map(p=>({producte:(p.producte||'').trim(),qty:num(p.qty),imp:num(p.imp),pv:p.pv,prov:r.prov,data:r.data,invId:r.id})));}
+/* Factura lligada a una compra i pagaments que hi consten */
+function compraFactura(type,id){return Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===id)||null;}
+function compraPags(type,r){const f=r&&r.id?compraFactura(type,r.id):null;return f?factPags(f):[];}
+/* Data efectiva d'una compra: la seva pròpia i, si es paga en diversos terminis sense data pròpia,
+   la del primer pagament. Així no queda «sense data» ni fora dels subtotals. */
+function compraData(type,r){
+  if(r&&r.data)return r.data;
+  const ds=compraPags(type,r).map(p=>p.data).filter(Boolean).sort();
+  return ds.length?ds[0]:'';
+}
+function compraLines(type){return (Y()[type]||[]).flatMap(r=>(r.productes||[]).map(p=>({producte:(p.producte||'').trim(),qty:num(p.qty),imp:num(p.imp),pv:p.pv,prov:r.prov,data:compraData(type,r),invId:r.id})));}
 function prodNames(type){return [...new Set(compraLines(type).map(p=>p.producte).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
 const PLNK='color:var(--blau);cursor:pointer;text-decoration:underline';
 function vCompra(type){
   const cfg=COMPRA_CFG[type];
   const sub=['compres','producte','quatri'].includes(ctx.sub)?ctx.sub:'compres';
-  const invs=(Y()[type]||[]).slice().sort((a,b)=>(a.data||'')<(b.data||'')?1:-1);
+  const invs=(Y()[type]||[]).slice().sort((a,b)=>(compraData(type,a)||'')<(compraData(type,b)||'')?1:-1);
   let h=`<div class="subtabs">${[['compres','Compres per dia'],['producte','Resum per producte'],['quatri','Subtotals']].map(([k,t])=>`<button data-sub="${k}" class="${k===sub?'on':''}">${t}</button>`).join('')}</div>`;
   if(sub==='compres'){
     if(!invs.length)h+=`<div class="card muted">Cap factura de ${cfg.titol}. Afegeix-ne amb el botó +.</div>`;
     else invs.forEach(r=>{
       h+=`<div class="card tight">
         <div class="item clickable" data-editinv="${type}|${r.id}" style="padding:2px 0 6px">
-          <div><div class="t">${r.prov?`<span style="${PLNK}" data-provresum="${esc(r.prov)}">${esc(r.prov)}</span>`:'(sense proveïdor)'}</div><div class="s">${r.data?dataCA(r.data):'sense data'} · ${(r.productes||[]).length} producte(s)</div></div>
+          <div><div class="t">${r.prov?`<span style="${PLNK}" data-provresum="${esc(r.prov)}">${esc(r.prov)}</span>`:'(sense proveïdor)'}</div><div class="s">${(dd=>dd?dataCA(dd):'sense data')(compraData(type,r))}${(np=>np>1?' · '+np+' pagaments':'')(compraPags(type,r).length)} · ${(r.productes||[]).length} producte(s)</div></div>
           <div class="imp num">${eur0(compraTotal(r))}</div></div>
         <div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th><th class="n">Venda</th><th class="n">% Ben.</th></tr></thead><tbody>`;
       (r.productes||[]).forEach(p=>{const qty=num(p.qty),imp=num(p.imp),cost=qty?imp/qty:0,ben=cost&&p.pv!=null?100*(num(p.pv)-cost)/cost:null;
@@ -1206,12 +1216,12 @@ function vCompra(type){
     }
   } else {
     const pk=(im,q)=>q?(im/q).toFixed(2):'—';
-    const tq={};invs.forEach(r=>{const qn=quatri(r.data);if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraTotal(r);}});
+    const tq={};invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraTotal(r);}});
     h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td><td class="n">${pk(tq[qn].imp,tq[qn].q)}</td></tr>`;}});
     h+=`<tr class="total"><td>Any</td><td class="n">${tq0.toLocaleString('ca-ES')}</td><td class="n">${eur0(ti0)}</td><td class="n">${pk(ti0,tq0)}</td></tr></tbody></table></div>`;
     const tm=Array.from({length:12},()=>({q:0,imp:0}));
-    invs.forEach(r=>{if(r.data){const m=parseInt(r.data.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraTotal(r);}}});
+    invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraTotal(r);}}});
     h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let am=0,ai=0;
     for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${tm[m].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tm[m].imp)}</td><td class="n">${pk(tm[m].imp,tm[m].q)}</td></tr>`;}}
@@ -1627,7 +1637,7 @@ function exportaXLSX(){
   // Bacallà (una fila per producte de cada factura)
   const bb=[['Data','Proveïdor','Producte','Kg','Import','Cost €/kg','Preu venda €/kg','% Benefici']];
   Y().bacalla.forEach(r=>(r.productes||[]).forEach(p=>{const qty=num(p.qty),cost=qty?num(p.imp)/qty:'';
-    bb.push([r.data||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'']);}));
+    bb.push([compraData('bacalla',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'']);}));
   fullA(wb,bb,'Bacallà');
   // Olives
   // Olives — matriu anual (tipus × mesos)
@@ -1648,7 +1658,7 @@ function exportaXLSX(){
   // Conserva (una fila per producte de cada factura)
   const kk=[['Data','Proveïdor','Producte','Unitats','Import','Cost €/unitat','Preu venda','% Benefici']];
   Y().conserva.forEach(r=>(r.productes||[]).forEach(p=>{const qty=num(p.qty),cost=qty?num(p.imp)/qty:'';
-    kk.push([r.data||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'']);}));
+    kk.push([compraData('conserva',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'']);}));
   fullA(wb,kk,'Conserva');
   XLSX.writeFile(wb,'Dietari_'+any+'.xlsx');
 }
