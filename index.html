@@ -1588,8 +1588,14 @@ function vTresoreria(){
 }
 
 /* ================= VISTA: RESUM ANUAL ================= */
-/* Coeficient = Recaptació / (Despeses + Fp + FpL). denom pot ser 0 (— llavors) */
-function coefStr(rec,denom){return denom?(rec/denom).toFixed(2):'—';}
+/* Coeficient = (Recaptació / (Despeses + Fp + FpL) − 1) en %. denom pot ser 0 (— llavors) */
+function coefPct(rec,denom){return denom?100*(rec/denom-1):null;}
+function coefCellHTML(rec,denom,bold){
+  const p=coefPct(rec,denom);
+  if(p==null)return '<td class="n">—</td>';
+  const cls=p>=0?'pos':'neg', txt=p.toFixed(1)+' %';
+  return `<td class="n ${cls}">${bold?'<b>'+txt+'</b>':txt}</td>`;
+}
 /* % de la recaptació anual que representa cada dia de la setmana (Dl–Ds), sobre el total brut
    (sense restar la comissió mensual, que no és d'un dia concret) */
 function recPerDiaSetmana(){
@@ -1622,20 +1628,20 @@ function vResumAnual(){
   h+='<td class="n"><b>'+eur0(tcom)+'</b></td></tr>';
   h+='<tr><td>Coeficient</td>';
   let tRecC=0,tDenC=0;
-  for(let m=0;m<12;m++){const rec=val(m,'rec'),den=val(m,'desp')+val(m,'fp');tRecC+=rec;tDenC+=den;h+='<td class="n">'+coefStr(rec,den)+'</td>';}
-  h+='<td class="n"><b>'+coefStr(tRecC,tDenC)+'</b></td></tr>';
+  for(let m=0;m<12;m++){tRecC+=val(m,'rec');tDenC+=val(m,'desp')+val(m,'fp');h+='<td class="n"></td>';}
+  h+=coefCellHTML(tRecC,tDenC,true)+'</tr>';
   h+='</tbody></table></div>'+
-    '<p class="muted" style="margin:8px 2px 0">Coeficient = Recaptació ÷ (Despeses + Fp + FpL)</p></div>';
+    '<p class="muted" style="margin:8px 2px 0">Coeficient = (Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100%</p></div>';
   // quatrimestres (4 mesos): Q1 gen–abr, Q2 mai–ago, Q3 set–des
   const KS=['ef','tpv','rec','desp','fp'], KN=['Efectiu','TPV','Recaptació','Despeses (+ c/c)','Fp + FpL'];
   const q=[0,1,2].map(i=>{const ms=[0,1,2,3].map(j=>i*4+j);const o={};KS.forEach(k=>o[k]=ms.reduce((s,m)=>s+val(m,k),0));return o;});
   const QN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
-  h+='<div class="card"><h3>Quatrimestres</h3><div class="scrollx"><table><thead><tr><th></th>'+KN.map(n=>`<th class="n">${n}</th>`).join('')+'</tr></thead><tbody>';
-  q.forEach((t,i)=>{h+=`<tr><td>${QN[i]}</td>`+KS.map(k=>`<td class="n">${eur0(t[k])}</td>`).join('')+`<td class="n">${coefStr(t.rec,t.desp+t.fp)}</td></tr>`;});
+  h+='<div class="card"><h3>Quatrimestres</h3><div class="scrollx"><table><thead><tr><th></th>'+KN.map(n=>`<th class="n">${n}</th>`).join('')+'<th class="n">Coeficient</th></tr></thead><tbody>';
+  q.forEach((t,i)=>{h+=`<tr><td>${QN[i]}</td>`+KS.map(k=>`<td class="n">${eur0(t[k])}</td>`).join('')+coefCellHTML(t.rec,t.desp+t.fp,false)+'</tr>';});
   const any={};KS.forEach(k=>any[k]=q.reduce((s,t)=>s+t[k],0));
-  h+='<tr class="total"><td>Any</td>'+KS.map(k=>`<td class="n">${eur0(any[k])}</td>`).join('')+`<td class="n"><b>${coefStr(any.rec,any.desp+any.fp)}</b></td></tr>`;
+  h+='<tr class="total"><td>Any</td>'+KS.map(k=>`<td class="n">${eur0(any[k])}</td>`).join('')+coefCellHTML(any.rec,any.desp+any.fp,true)+'</tr>';
   h+='</tbody></table></div>'+
-    '<p class="muted" style="margin:8px 2px 0">Última columna: Coeficient = Recaptació ÷ (Despeses + Fp + FpL)</p></div>';
+    '<p class="muted" style="margin:8px 2px 0">Coeficient = (Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100%</p></div>';
   // % de recaptació per dia de la setmana
   const {sums,tot}=recPerDiaSetmana();
   h+='<div class="card"><h3>Recaptació per dia de la setmana</h3><div class="scrollx"><table><thead><tr><th>Dia</th><th class="n">Recaptació</th><th class="n">%</th></tr></thead><tbody>';
