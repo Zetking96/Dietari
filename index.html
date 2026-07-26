@@ -201,7 +201,7 @@ const MESOS=['gener','febrer','març','abril','maig','juny','juliol','agost','se
 const DIES=['Dl','Dt','Dc','Dj','Dv','Ds'];
 let S=null;
 
-function anyBuit(){return {dies:{},tanc:{},cc:[],factures:[],bacalla:[],olivesCat:[],olivesCompres:[],conserva:[],comTpvMes:{},factorConserva:1.114};}
+function anyBuit(){return {dies:{},tanc:{},cc:[],factures:[],bacalla:[],olivesCat:[],olivesCompres:[],conserva:[],comTpvMes:{},caixaMes:{},factorConserva:1.114};}
 function estatBuit(){const y=String(new Date().getFullYear()); const s={activeYear:y,years:{}}; s.years[y]=anyBuit(); return s;}
 
 /* --- memòria cau local (per treballar sense connexió) --- */
@@ -476,6 +476,17 @@ function comissioMes(mes){return (comissioMesStored(mes)||0)+comissioAutoMes(mes
    el TPV tal com està; la comissió només es descompta al total mensual/quatrimestral (com al resum Excel).
    El TPV net que es mostra = valor desat; el brut = net + comissió (informatiu). */
 function totalsMes(mes){const t=totalsRang(isosDelMes(mes));const s=comissioMesStored(mes);if(s!=null)t.rec=r2(t.rec-s);return t;}
+/* Caixa d'efectiu acumulada, a partir de juliol (mes índex 6): cada mes comença amb l'efectiu
+   acumulat del mes anterior, hi suma l'efectiu de les seves setmanes, i s'hi pot afegir un ajust
+   manual (+/-). L'efectiu bancari és un valor purament manual, sense fórmula. */
+const CAIXA_DES=6; // juliol
+function caixaAjustMes(mes){const c=Y().caixaMes&&Y().caixaMes[mes];return c&&c.ajust!=null?num(c.ajust):0;}
+function caixaBancariMes(mes){const c=Y().caixaMes&&Y().caixaMes[mes];return c&&c.bancari!=null?num(c.bancari):null;}
+function caixaEfectiuMes(mes){
+  if(mes<CAIXA_DES)return 0;
+  const prev=mes>CAIXA_DES?caixaEfectiuMes(mes-1):0;
+  return r2(prev+totalsMes(mes).ef+caixaAjustMes(mes));
+}
 function ccDelMes(mes){const p=S.activeYear+'-'+String(mes+1).padStart(2,'0');return Y().cc.filter(m=>m.data&&m.data.startsWith(p));}
 function despCCMes(mes){const c=ccCatByRole('despcc');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.debe),0);}
 function ingresTpvBancMes(mes){const c=ccCatByRole('tpv');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.haber),0);}
@@ -808,7 +819,37 @@ function vDietari(){
   h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Comissió TPV del mes</h3><button class="small" data-editcom="'+mes+'">Edita</button></div>'+
     kpiGrid([['Comissió TPV',eur0(comMes)],['% comissió',tpvNet?(100*comMes/tpvNet).toFixed(1)+' %':'—'],['TPV net',eur0(tpvNet)],['TPV brut',eur0(tpvBrut)]])+
     '<p class="muted" style="margin:6px 2px 0">El TPV net és el que compta a la recaptació. El brut = net + comissió (informatiu).</p></div>';
+  if(mes>=CAIXA_DES){
+    const efAcum=caixaEfectiuMes(mes), ajust=caixaAjustMes(mes), banc=caixaBancariMes(mes);
+    h+=`<div class="card"><h3>Caixa d'efectiu <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d'on surt)</span></h3>
+      <div class="kpi clickable" data-caixaef="${mes}" style="margin-bottom:10px"><div class="l">Efectiu acumulat</div><div class="v num">${eur0(efAcum)}</div></div>
+      <div class="row2">
+        <div><label for="cx_ajust">Ajust (+/−)</label><input id="cx_ajust" class="num" inputmode="decimal" value="${ajust||''}"></div>
+        <div><label for="cx_banc">Efectiu bancari</label><input id="cx_banc" class="num" inputmode="decimal" value="${banc??''}"></div>
+      </div>
+      <button class="primary" id="cx_desa" data-mes="${mes}" style="margin-top:8px">Desa</button>
+      <p class="muted" style="margin:6px 2px 0">L'efectiu comença amb l'acumulat del mes anterior i hi suma cada setmana. L'ajust és per corregir manualment; l'efectiu bancari és un valor a part, sense fórmula.</p>
+    </div>`;
+  }
   return h;
+}
+/* ---- Detall de d'on surt l'efectiu acumulat del mes ---- */
+function breakdownCaixaHTML(mes){
+  const prev=mes>CAIXA_DES?caixaEfectiuMes(mes-1):0, setmSum=totalsMes(mes).ef, ajust=caixaAjustMes(mes);
+  const tot=r2(prev+setmSum+ajust);
+  let h='<div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">Import</th></tr></thead><tbody>';
+  if(mes>CAIXA_DES)h+=`<tr class="clickable" data-caixaprev="${mes-1}"><td>Efectiu acumulat de ${MESOS[mes-1]}</td><td class="n">${eur0(prev)}</td></tr>`;
+  else h+=`<tr class="muted"><td>Efectiu acumulat del mes anterior</td><td class="n">${eur0(prev)} (primer mes)</td></tr>`;
+  h+=`<tr class="clickable" data-mk="${mes}|ef"><td>Efectiu de les setmanes de ${MESOS[mes]}</td><td class="n">${eur0(setmSum)}</td></tr>`;
+  if(ajust)h+=`<tr><td>Ajust manual</td><td class="n">${eur0(ajust)}</td></tr>`;
+  h+=`<tr class="total"><td>Efectiu acumulat</td><td class="n"><b>${eur0(tot)}</b></td></tr></tbody></table></div>`;
+  return h;
+}
+function obreBreakdownCaixa(mes){
+  modal(mTitle('Efectiu acumulat · '+MESOS[mes]+' '+S.activeYear)+breakdownCaixaHTML(mes),el=>{
+    el.querySelectorAll('[data-mk]').forEach(x=>x.addEventListener('click',()=>{const p=x.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));
+    el.querySelectorAll('[data-caixaprev]').forEach(x=>x.addEventListener('click',()=>obreBreakdownCaixa(parseInt(x.dataset.caixaprev))));
+  });
 }
 function clauMes(mes){return S.activeYear+'-'+String(mes+1).padStart(2,'0');}
 function bindDietari(){
@@ -830,6 +871,15 @@ function bindDietari(){
     if(s==='')delete Y().comTpvMes[mes]; else Y().comTpvMes[mes]=num(s);
     save(); go('dietari',{...ctx,mes});
   }));
+  document.querySelectorAll('[data-caixaef]').forEach(el=>el.addEventListener('click',()=>obreBreakdownCaixa(parseInt(el.dataset.caixaef))));
+  const cxDesa=document.querySelector('#cx_desa');
+  if(cxDesa)cxDesa.addEventListener('click',()=>{
+    const mes=parseInt(cxDesa.dataset.mes);
+    if(!Y().caixaMes)Y().caixaMes={};
+    const aj=numOrNull(document.querySelector('#cx_ajust').value), bc=numOrNull(document.querySelector('#cx_banc').value);
+    Y().caixaMes[mes]={ajust:aj==null?0:aj, bancari:bc};
+    save(); go('dietari',{...ctx,mes});
+  });
   bindWk();
   bindMk();
 }
@@ -897,6 +947,18 @@ function migra(){
   migraDies();
   migraCompres();
   migraComissio();
+  migraProveidors();
+}
+/* Unifica proveïdors amb grafies diferents detectades a les dades ("Olivas center" / "Olivas Center").
+   Afegeix-hi més entrades si es detecten altres duplicats. Idempotent. */
+const PROV_CANONIC={'olivas center':'Olivas Center'};
+function migraProveidors(){
+  const fix=v=>{if(!v)return v;const c=PROV_CANONIC[v.trim().toLowerCase()];return c||v;};
+  Object.values(S.years||{}).forEach(y=>{
+    (y.factures||[]).forEach(f=>{if(f.empresa)f.empresa=fix(f.empresa);});
+    (y.bacalla||[]).forEach(r=>{if(r.prov)r.prov=fix(r.prov);});
+    (y.conserva||[]).forEach(r=>{if(r.prov)r.prov=fix(r.prov);});
+  });
 }
 /* Comissió TPV: del model antic (repartida per dia, d.comTpv) al mensual (y.comTpvMes).
    Per al 2026 gen–jun desa les xifres reals del resum de l'Excel. Idempotent. Juliol es deixa a mà. */
@@ -935,7 +997,24 @@ function migraDies(){
     });
   });
 }
-const CC_ESTATS=['Pagat','Ingressat','Cancelat'];
+const CC_ESTATS=['Pagat','Ingressat','Pendent','Cancelat'];
+/* Resum d'un concepte de compte corrent: tots els moviments amb aquest concepte, de tots els mesos */
+function ccConceptes(){return distinctVals(Y().cc,'concepte');}
+function ccConcepteResumHTML(nom){
+  const low=nom.trim().toLowerCase();
+  const movs=Y().cc.filter(m=>(m.concepte||'').trim().toLowerCase()===low).sort((a,b)=>a.data<b.data?1:-1);
+  const deure=movs.reduce((s,m)=>s+num(m.debe),0), haver=movs.reduce((s,m)=>s+num(m.haber),0);
+  let h=`<div class="recline"><span class="l">Total deure</span><span class="v num">${eur0(deure)}</span></div>`;
+  h+=`<div class="recline"><span class="l">Total haver</span><span class="v num">${eur0(haver)}</span></div>`;
+  h+='<h3>Tots els moviments ('+movs.length+')</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Categoria</th><th>Estat</th><th class="n">Deure</th><th class="n">Haver</th></tr></thead><tbody>';
+  movs.forEach(m=>{h+=`<tr class="clickable" data-cc="${m.id}"><td>${dataCA(m.data)}</td><td>${esc(ccCatNom(m))}</td><td><span class="chip ${m.estat.toLowerCase()}">${m.estat}</span></td><td class="n">${m.debe?eur0(num(m.debe)):''}</td><td class="n">${m.haber?eur0(num(m.haber)):''}</td></tr>`;});
+  h+='</tbody></table></div>';
+  return h;
+}
+function obreCCConcepteResum(nom){modal(mTitle(nom)+ccConcepteResumHTML(nom),el=>{
+  bindResumLinks(el);
+  el.querySelectorAll('[data-cc]').forEach(tr=>tr.addEventListener('click',()=>{tancaModal();formCC(Y().cc.find(x=>x.id===tr.dataset.cc));}));
+});}
 function vCC(){
   const mes=ctx.mes??(new Date().getFullYear()==S.activeYear?new Date().getMonth():0);
   ctx.mes=mes;
@@ -945,7 +1024,7 @@ function vCC(){
   else{
     h+='<div class="card tight">'+movs.map(m=>{
       const imp=num(m.haber)?'<span class="imp pos num">+'+eur0(num(m.haber)).replace(/^/,'')+'</span>':'<span class="imp neg num">−'+eur0(num(m.debe))+'</span>';
-      return `<div class="item" data-cc="${m.id}"><div><div class="t">${esc(m.concepte||ccCatNom(m))}</div>
+      return `<div class="item" data-cc="${m.id}"><div><div class="t">${m.concepte?`<span style="${PLNK}" data-ccconcresum="${esc(m.concepte)}">${esc(m.concepte)}</span>`:esc(ccCatNom(m))}</div>
         <div class="s">${dataCA(m.data)} · ${esc(ccCatNom(m))} <span class="chip ${m.estat.toLowerCase()}">${m.estat}</span></div>
         ${m.obs?'<div class="s">'+esc(m.obs)+'</div>':''}</div>${imp}</div>`;
     }).join('')+'</div>';
@@ -968,12 +1047,14 @@ function bindCC(){
   document.querySelectorAll('[data-cc]').forEach(el=>el.addEventListener('click',()=>{
     formCC(Y().cc.find(x=>x.id===el.dataset.cc));
   }));
+  bindResumLinks(document);
 }
 function formCC(m){
   const nou=!m; m=m||{data:dataDefecte(),concepte:'',catId:'despcc',debe:'',haber:'',estat:'Pagat',obs:''};
   modal(mTitle(nou?'Nou moviment':'Edita moviment')+`
     <label>Data</label><input type="date" id="c_data" value="${m.data}">
-    <label>Concepte</label><input id="c_conc" value="${esc(m.concepte)}" placeholder="Gestoria, llum, abonament TPV…">
+    <label>Concepte</label><input id="c_conc" value="${esc(m.concepte)}" placeholder="Gestoria, llum, abonament TPV…" list="dl_ccconc">
+    <datalist id="dl_ccconc">${dlOpts(ccConceptes())}</datalist>
     <div class="row2">
       <div><label>Categoria</label><select id="c_cat">${ccCats().map(c=>`<option value="${c.id}" ${c.id===(m.catId||'despcc')?'selected':''}>${esc(c.nom)}</option>`).join('')}</select></div>
       <div><label>Estat</label><select id="c_est">${CC_ESTATS.map(c=>`<option ${c===m.estat?'selected':''}>${c}</option>`).join('')}</select></div>
@@ -993,7 +1074,11 @@ function formCC(m){
     ${nou?'':'<button class="danger" id="c_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     const tpvId=(ccCatByRole('tpv')||{}).id;
-    el.querySelector('#c_cat').addEventListener('change',e=>{el.querySelector('#c_tpvbox').style.display=e.target.value===tpvId?'':'none';});
+    el.querySelector('#c_cat').addEventListener('change',e=>{
+      const isTpv=e.target.value===tpvId;
+      el.querySelector('#c_tpvbox').style.display=isTpv?'':'none';
+      if(isTpv)el.querySelector('#c_est').value='Ingressat';
+    });
     el.querySelector('#c_addcat').addEventListener('click',()=>{
       const nom=(prompt('Nom de la nova categoria:')||'').trim();
       if(!nom)return;
@@ -1278,6 +1363,7 @@ function bindResumLinks(el){
   el.querySelectorAll('[data-prodresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();const s=x.dataset.prodresum,i=s.indexOf('|');obreProdResum(s.slice(0,i),s.slice(i+1));}));
   el.querySelectorAll('[data-provresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();obreProvResum(x.dataset.provresum);}));
   el.querySelectorAll('[data-olresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();obreOlivaResum(x.dataset.olresum);}));
+  el.querySelectorAll('[data-ccconcresum]').forEach(x=>x.addEventListener('click',e=>{e.stopPropagation();obreCCConcepteResum(x.dataset.ccconcresum);}));
 }
 function obreProdResum(type,nm){modal(mTitle(nm)+prodResumHTML(type,nm),el=>bindResumLinks(el));}
 /* Resum d'un proveïdor: totes les seves factures (les de compres hi són via la factura lligada) */
