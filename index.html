@@ -2019,6 +2019,9 @@ function vConfig(){
   <div class="card">
     <h3>Compte</h3>
     <p class="muted">Sessió iniciada amb <b>${esc(sbUser&&sbUser.email||'—')}</b>. Canviar l'accés no toca cap dada: el compte segueix sent el mateix.</p>
+    <label for="cf_passAra">Contrasenya actual</label>
+    <input type="password" id="cf_passAra" autocomplete="current-password">
+    <p class="muted" style="margin:0 0 10px">Cal per confirmar qualsevol dels dos canvis de sota.</p>
     <label for="cf_pass1">Contrasenya nova</label>
     <input type="password" id="cf_pass1" autocomplete="new-password">
     <label for="cf_pass2">Repeteix-la</label>
@@ -2051,23 +2054,36 @@ function vConfig(){
   </div>`;
 }
 function bindConfig(){
-  /* Compte: canvi de contrasenya i de correu d'accés (mateix usuari, cap dada tocada) */
+  /* Compte: canvi de contrasenya i de correu d'accés (mateix usuari, cap dada tocada).
+     Tots dos canvis exigeixen tornar a validar la contrasenya actual, perquè una sessió
+     oberta i desatesa no permeti que ningú et tanqui fora del teu propi compte. */
+  const confirmaIdentitat=async()=>{
+    const camp=$('#cf_passAra'), pw=camp.value;
+    if(!pw){alert('Escriu la contrasenya actual per confirmar el canvi.');camp.focus();return false;}
+    const email=sbUser&&sbUser.email;
+    if(!email){alert('No hi ha cap sessió oberta.');return false;}
+    const {error}=await sb.auth.signInWithPassword({email,password:pw});
+    if(error){alert('La contrasenya actual no és correcta.');camp.focus();return false;}
+    return true;
+  };
   $('#cf_passDesa').addEventListener('click',async()=>{
     const p1=$('#cf_pass1').value, p2=$('#cf_pass2').value;
     if(p1.length<6){alert('La contrasenya ha de tenir 6 caràcters com a mínim.');return;}
     if(p1!==p2){alert('Les dues contrasenyes no coincideixen.');return;}
+    if(!await confirmaIdentitat())return;
     const {error}=await sb.auth.updateUser({password:p1});
     if(error){alert('No s\'ha pogut canviar la contrasenya: '+error.message);return;}
-    $('#cf_pass1').value=''; $('#cf_pass2').value='';
+    $('#cf_pass1').value=''; $('#cf_pass2').value=''; $('#cf_passAra').value='';
     alert('Contrasenya canviada. La pròxima vegada que entris, fes servir la nova.');
   });
   $('#cf_emailDesa').addEventListener('click',async()=>{
     const em=$('#cf_email').value.trim();
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){alert('Posa un correu vàlid.');return;}
     if(!confirm('Canviar el correu d\'accés a '+em+'?\n\nRebràs un missatge de confirmació a l\'adreça nova. Fins que no el confirmis, has de seguir entrant amb el correu d\'ara.'))return;
+    if(!await confirmaIdentitat())return;
     const {error}=await sb.auth.updateUser({email:em});
     if(error){alert('No s\'ha pogut canviar el correu: '+error.message);return;}
-    $('#cf_email').value='';
+    $('#cf_email').value=''; $('#cf_passAra').value='';
     alert('Fet. Obre el correu '+em+' i confirma el canvi des del missatge que hi trobaràs.');
   });
   $('#cf_tabsDesa').addEventListener('click',()=>{
