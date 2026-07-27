@@ -1378,15 +1378,19 @@ function vCompra(type){
     }
   } else {
     const pk=(im,q)=>q?(im/q).toFixed(2):'—';
-    const tq={};invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraTotal(r);}});
+    const tq={};let senseQq=0,senseQi=0;
+    invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraTotal(r);}else{senseQq+=compraQty(r);senseQi+=compraTotal(r);}});
     h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td><td class="n">${pk(tq[qn].imp,tq[qn].q)}</td></tr>`;}});
+    if(senseQq||senseQi){tq0+=senseQq;ti0+=senseQi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td><td class="n">${senseQq.toLocaleString('ca-ES')}</td><td class="n">${eur0(senseQi)}</td><td class="n">${pk(senseQi,senseQq)}</td></tr>`;}
     h+=`<tr class="total"><td>Any</td><td class="n">${tq0.toLocaleString('ca-ES')}</td><td class="n">${eur0(ti0)}</td><td class="n">${pk(ti0,tq0)}</td></tr></tbody></table></div>`;
     const tm=Array.from({length:12},()=>({q:0,imp:0}));
-    invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraTotal(r);}}});
+    let senseMq=0,senseMi=0;
+    invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraTotal(r);}}else{senseMq+=compraQty(r);senseMi+=compraTotal(r);}});
     h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let am=0,ai=0;
     for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${tm[m].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tm[m].imp)}</td><td class="n">${pk(tm[m].imp,tm[m].q)}</td></tr>`;}}
+    if(senseMq||senseMi){am+=senseMq;ai+=senseMi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td><td class="n">${senseMq.toLocaleString('ca-ES')}</td><td class="n">${eur0(senseMi)}</td><td class="n">${pk(senseMi,senseMq)}</td></tr>`;}
     h+=`<tr class="total"><td>Any</td><td class="n">${am.toLocaleString('ca-ES')}</td><td class="n">${eur0(ai)}</td><td class="n">${pk(ai,am)}</td></tr></tbody></table></div></div>`;
   }
   return h;
