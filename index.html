@@ -1252,6 +1252,16 @@ function formFactura(f){
     ${pdfFormatHTML(f)}
     <label>Observacions</label><textarea id="x_obs">${esc(f.obs||'')}</textarea>
     <button class="primary" id="x_desa">Desa</button>
+    ${(nou||f.auto)?'':`<div class="lineblk" style="margin-top:12px">
+      <div class="lbhead"><span class="lbtitle">Converteix en compra</span></div>
+      <p class="muted" style="margin:0 0 6px">Passa aquesta factura a Compres perquè els quilos comptin als subtotals. Manté el número, els pagaments i el PDF. Desa primer si has canviat res.</p>
+      <div class="row3">
+        <select id="x_cvtipus"><option value="bacalla">Bacallà</option><option value="conserva">Conserva</option></select>
+        <input id="x_cvprod" placeholder="Producte (Filet…)">
+        <input id="x_cvqty" class="num" inputmode="decimal" placeholder="Quantitat">
+      </div>
+      <button class="small" id="x_cvt" type="button" style="margin-top:6px">Converteix en compra</button>
+    </div>`}
     ${nou?'':'<button class="danger" id="x_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     const readPagaments=bindPaysSection(el,()=>el.querySelector('#x_imp').value);
@@ -1273,6 +1283,28 @@ function formFactura(f){
       await aplicaPdf(obj);
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
       save();tancaModal();render();
+    });
+    /* Converteix una factura normal en compra de bacallà/conserva: crea el registre a Compres
+       amb els quilos i hi lliga aquesta mateixa factura (no en duplica cap). */
+    const cvt=el.querySelector('#x_cvt');
+    if(cvt)cvt.addEventListener('click',()=>{
+      const type=el.querySelector('#x_cvtipus').value, cfg=COMPRA_CFG[type];
+      const prod=el.querySelector('#x_cvprod').value.trim();
+      const qty=numOrNull(el.querySelector('#x_cvqty').value);
+      const imp=numOrNull(el.querySelector('#x_imp').value);
+      if(!prod){alert('Falta el nom del producte.');return;}
+      if(qty==null||qty<=0){alert('Falta la quantitat ('+cfg.qtyLab.toLowerCase()+').');return;}
+      if(imp==null){alert('Falta l\'import total.');return;}
+      if(!confirm('Convertir la factura #'+(f.num??'—')+' en una compra de '+cfg.titol+':\n'+
+        prod+' · '+qty+' '+cfg.qtyLab.toLowerCase()+' · '+eur0(imp)+
+        '\n\nLa factura es manté (mateix número i pagaments) i queda lligada a la compra.'))return;
+      const r={id:uid(),prov:el.querySelector('#x_emp').value.trim(),data:f.dataPagISO||'',
+        diaCat:['Despeses','FpL','Fp'].includes(f.categoria)?f.categoria:'FpL',
+        productes:[{producte:prod,qty:qty,imp:imp,pv:null}]};
+      Y()[type].push(r);
+      const fx=Y().factures.find(x=>x.id===f.id);
+      if(fx){fx.auto=true;fx.srcType=type;fx.srcId=r.id;}
+      save();tancaModal();go('compres',{tab:type,sub:'quatri'});
     });
     const del=el.querySelector('#x_del');
     if(del)del.addEventListener('click',()=>{if(confirm('Eliminar aquesta factura?')){
