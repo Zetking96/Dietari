@@ -2017,6 +2017,19 @@ function vConfig(){
     </div>
   </div>
   <div class="card">
+    <h3>Compte</h3>
+    <p class="muted">Sessió iniciada amb <b>${esc(sbUser&&sbUser.email||'—')}</b>. Canviar l'accés no toca cap dada: el compte segueix sent el mateix.</p>
+    <label for="cf_pass1">Contrasenya nova</label>
+    <input type="password" id="cf_pass1" autocomplete="new-password">
+    <label for="cf_pass2">Repeteix-la</label>
+    <input type="password" id="cf_pass2" autocomplete="new-password">
+    <button class="primary" id="cf_passDesa">Canvia la contrasenya</button>
+    <label for="cf_email" style="margin-top:14px">Correu d'accés nou</label>
+    <input type="email" id="cf_email" autocomplete="email" placeholder="${esc(sbUser&&sbUser.email||'')}">
+    <button id="cf_emailDesa">Canvia el correu</button>
+    <p class="muted" style="margin-top:6px">En canviar el correu rebràs un missatge de confirmació a l'adreça nova. Fins que no hi cliquis, has de seguir entrant amb l'adreça d'ara.</p>
+  </div>
+  <div class="card">
     <h3>Noms de les pestanyes de Compres</h3>
     <p class="muted">Canvia com es diu cada pestanya. Només canvia el text que es veu; les dades no es toquen. Deixa-ho buit per tornar al nom original.</p>
     <div id="cf_tabs">${COMPRES_TABS.map(([k,def])=>`
@@ -2038,6 +2051,25 @@ function vConfig(){
   </div>`;
 }
 function bindConfig(){
+  /* Compte: canvi de contrasenya i de correu d'accés (mateix usuari, cap dada tocada) */
+  $('#cf_passDesa').addEventListener('click',async()=>{
+    const p1=$('#cf_pass1').value, p2=$('#cf_pass2').value;
+    if(p1.length<6){alert('La contrasenya ha de tenir 6 caràcters com a mínim.');return;}
+    if(p1!==p2){alert('Les dues contrasenyes no coincideixen.');return;}
+    const {error}=await sb.auth.updateUser({password:p1});
+    if(error){alert('No s\'ha pogut canviar la contrasenya: '+error.message);return;}
+    $('#cf_pass1').value=''; $('#cf_pass2').value='';
+    alert('Contrasenya canviada. La pròxima vegada que entris, fes servir la nova.');
+  });
+  $('#cf_emailDesa').addEventListener('click',async()=>{
+    const em=$('#cf_email').value.trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){alert('Posa un correu vàlid.');return;}
+    if(!confirm('Canviar el correu d\'accés a '+em+'?\n\nRebràs un missatge de confirmació a l\'adreça nova. Fins que no el confirmis, has de seguir entrant amb el correu d\'ara.'))return;
+    const {error}=await sb.auth.updateUser({email:em});
+    if(error){alert('No s\'ha pogut canviar el correu: '+error.message);return;}
+    $('#cf_email').value='';
+    alert('Fet. Obre el correu '+em+' i confirma el canvi des del missatge que hi trobaràs.');
+  });
   $('#cf_tabsDesa').addEventListener('click',()=>{
     const noms={};
     document.querySelectorAll('#cf_tabs .lrow').forEach(row=>{
