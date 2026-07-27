@@ -130,6 +130,9 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
 .lbsum{font-weight:700;}
 .lrow{display:grid; grid-template-columns:88px 1fr auto auto; gap:6px; align-items:center; margin-bottom:6px;}
 .lrow .li-c{min-width:0;}
+.lrow .li-qty{grid-column:1/-1; display:flex; gap:6px; margin:-2px 0 2px;}
+.lrow .li-quant{width:76px;}
+.lrow .li-unitat{flex:1; min-width:0;}
 .enllac input[readonly]{opacity:.7; cursor:default;}
 .enllac .ex-open{padding:2px 6px;}
 .li-reclbl{display:flex; gap:3px; align-items:center; font-size:.82rem; white-space:nowrap;}
@@ -445,6 +448,17 @@ function olivesDiaBloc(ds,bloc){return ds?(Y().olivesCompres||[]).filter(c=>c.bl
 function dFp(d,ds){return (d?lineSum(d.fpLines):0)+factDiaBloc(ds,'fp')+olivesDiaBloc(ds,'fp');}
 function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl')+olivesDiaBloc(ds,'fpl');}
 function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
+/* Totes les línies (de tots els dies de l'any actiu) d'un bloc: 'fpLines'|'fplLines'|'despLines' */
+function totesLinies(key){
+  const out=[];
+  Object.values(Y().dies).forEach(d=>{(d[key]||[]).forEach(l=>out.push(l));});
+  return out;
+}
+function conceptesUsats(key){return distinctVals(totesLinies(key),'c');}
+function unitatsUsades(){
+  const all=[...totesLinies('fpLines'),...totesLinies('fplLines'),...totesLinies('despLines')];
+  return distinctVals(all,'unitat');
+}
 function diaTeRes(d){return !!(d&&(d.ef!=null||d.tpv!=null||(d.fpLines&&d.fpLines.length)||(d.fplLines&&d.fplLines.length)||(d.despLines&&d.despLines.length)||(d.obs&&d.obs.trim())));}
 /* TPV: el net és l'ingrés real al banc (categoria TPV) d'aquell dia. Si encara no n'hi ha, s'usa el brut provisional. Comissió = brut − net */
 function tpvBancDia(ds){if(!ds||ds<VINCLES_DES)return 0;const c=ccCatByRole('tpv');if(!c)return 0;return Y().cc.filter(m=>m.catId===c.id&&m.estat!=='Cancelat'&&(m.tpvData||m.data)===ds).reduce((s,m)=>s+num(m.haber),0);}
@@ -504,7 +518,7 @@ function render(){
     b.classList.toggle('on',b.dataset.v===grup);
   });
   const fab=$('#fab');
-  fab.style.display=['cc','factures','compres'].includes(vista)?'block':'none';
+  fab.style.display=(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.tab!=='inventari'))?'block':'none';
   const V={avui:vAvui,dietari:vDietari,tancament:vTancament,cc:vCC,factures:vFactures,mes:vMes,compres:vCompres,tresoreria:vTresoreria,resumAnual:vResumAnual,copia:vCopia,config:vConfig};
   $('#view').innerHTML=V[vista]();
   bindVista();
@@ -516,7 +530,7 @@ $('#fab').addEventListener('click',()=>{
   else if(vista==='compres'){
     if(ctx.tab==='bacalla')formBacalla();
     else if(ctx.tab==='olives')formSetmanaOlives(ctx.setOl);
-    else formConserva();
+    else if(ctx.tab==='conserva')formConserva();
   }
 });
 
@@ -540,9 +554,13 @@ function lineBlockHTML(key){
   arr.forEach((l,i)=>{
     h+=`<div class="lrow" data-k="${key}" data-i="${i}">
       <input class="num li-imp" inputmode="decimal" placeholder="0,00" value="${l.imp??''}">
-      <input class="li-c" placeholder="concepte" value="${esc(l.c||'')}">
+      <input class="li-c" placeholder="concepte" value="${esc(l.c||'')}" list="dl_concepte_${key}">
       <label class="li-reclbl" title="Compta com a recaptació"><input type="checkbox" class="li-rec" ${l.rec?'checked':''}> rec</label>
       <button class="small li-del" type="button" aria-label="Esborra la línia">✕</button>
+      <div class="li-qty">
+        <input class="num li-quant" inputmode="decimal" placeholder="quant." value="${l.quant??''}">
+        <input class="li-unitat" placeholder="unitat (caixes, kg…)" value="${esc(l.unitat||'')}" list="dl_unitats">
+      </div>
     </div>`;
   });
   h+=`<button class="small li-add" type="button" data-k="${key}">+ línia</button></div>`;
@@ -553,7 +571,7 @@ function vAvui(){
   const d=dia(ds)||{};
   const dow=new Date(ds+'T12:00').getDay();
   const avis=dow===0?'<div class="warn">Aquest dia és diumenge (tancat). Pots desar igualment si cal.</div>':'';
-  const cp=a=>(a||[]).map(l=>({imp:l.imp,c:l.c||'',rec:!!l.rec}));
+  const cp=a=>(a||[]).map(l=>({imp:l.imp,c:l.c||'',rec:!!l.rec,quant:l.quant,unitat:l.unitat||''}));
   avuiLines={fp:cp(d.fpLines),fpl:cp(d.fplLines),desp:cp(d.despLines)};
   return `<h2>Entrada del dia</h2>
   <div class="card" id="cardAvui">
@@ -567,6 +585,10 @@ function vAvui(){
     <div id="blkFp">${lineBlockHTML('fp')}</div>
     <div id="blkFpl">${lineBlockHTML('fpl')}</div>
     <div id="blkDesp">${lineBlockHTML('desp')}</div>
+    <datalist id="dl_concepte_fp">${dlOpts(conceptesUsats('fpLines'))}</datalist>
+    <datalist id="dl_concepte_fpl">${dlOpts(conceptesUsats('fplLines'))}</datalist>
+    <datalist id="dl_concepte_desp">${dlOpts(conceptesUsats('despLines'))}</datalist>
+    <datalist id="dl_unitats">${dlOpts(unitatsUsades())}</datalist>
     <label for="f_obs">Observacions (talons, factures, ingressos al banc…)</label>
     <textarea id="f_obs">${esc(d.obs||'')}</textarea>
     <div class="recline"><span class="l">Recaptació</span><span class="v num" id="recVal">${eur0(recDia(d,ds))}</span></div>
@@ -599,7 +621,8 @@ function bindAvui(){
   // Llegeix l'estat actual dels camps d'un bloc cap a avuiLines (preserva el que s'escriu)
   const readBlock=key=>{const arr=[];
     document.querySelectorAll('.lrow[data-k="'+key+'"]').forEach(row=>{
-      arr.push({imp:row.querySelector('.li-imp').value,c:row.querySelector('.li-c').value,rec:row.querySelector('.li-rec').checked});});
+      arr.push({imp:row.querySelector('.li-imp').value,c:row.querySelector('.li-c').value,rec:row.querySelector('.li-rec').checked,
+        quant:row.querySelector('.li-quant').value,unitat:row.querySelector('.li-unitat').value});});
     return arr;};
   const syncLines=()=>{['fp','fpl','desp'].forEach(k=>{avuiLines[k]=readBlock(k);});};
   const renderBlock=key=>{const cap=key.charAt(0).toUpperCase()+key.slice(1);document.getElementById('blk'+cap).innerHTML=lineBlockHTML(key);};
@@ -624,7 +647,7 @@ function bindAvui(){
   card.addEventListener('change',e=>{if(e.target.classList.contains('li-rec'))recalc();});
   card.addEventListener('click',e=>{
     const add=e.target.closest('.li-add');
-    if(add){const k=add.dataset.k; syncLines(); avuiLines[k].push({imp:'',c:'',rec:false}); renderBlock(k); recalc(); return;}
+    if(add){const k=add.dataset.k; syncLines(); avuiLines[k].push({imp:'',c:'',rec:false,quant:'',unitat:''}); renderBlock(k); recalc(); return;}
     const del=e.target.closest('.li-del');
     if(del){const row=del.closest('.lrow'); const k=row.dataset.k; const i=parseInt(row.dataset.i); syncLines(); avuiLines[k].splice(i,1); renderBlock(k); recalc(); return;}
   });
@@ -656,8 +679,8 @@ function bindAvui(){
     if(!ds){alert('Falta la data.');return;}
     if(ds.slice(0,4)!==S.activeYear){alert('La data ha de ser de l\'any actiu ('+S.activeYear+').');return;}
     syncLines();
-    const netLines=arr=>arr.map(l=>({imp:numOrNull(l.imp),c:(l.c||'').trim(),rec:!!l.rec}))
-      .filter(l=>l.imp!=null||l.c).map(l=>({imp:l.imp==null?0:l.imp,c:l.c,rec:l.rec}));
+    const netLines=arr=>arr.map(l=>({imp:numOrNull(l.imp),c:(l.c||'').trim(),rec:!!l.rec,quant:numOrNull(l.quant),unitat:(l.unitat||'').trim()}))
+      .filter(l=>l.imp!=null||l.c||l.quant!=null||l.unitat).map(l=>({imp:l.imp==null?0:l.imp,c:l.c,rec:l.rec,quant:l.quant,unitat:l.unitat}));
     const d={ef:numOrNull($('#f_ef').value),tpv:numOrNull($('#f_tpv').value),
       fpLines:netLines(avuiLines.fp),fplLines:netLines(avuiLines.fpl),despLines:netLines(avuiLines.desp),
       obs:$('#f_obs').value.trim()};
@@ -821,14 +844,16 @@ function vDietari(){
     '<p class="muted" style="margin:6px 2px 0">El TPV net és el que compta a la recaptació. El brut = net + comissió (informatiu).</p></div>';
   if(mes>=CAIXA_DES){
     const efAcum=caixaEfectiuMes(mes), ajust=caixaAjustMes(mes), banc=caixaBancariMes(mes);
+    const pend=facturesPendentsTotal(), totalAcum=r2((banc||0)+efAcum-pend);
     h+=`<div class="card"><h3>Caixa d'efectiu <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d'on surt)</span></h3>
-      <div class="kpi clickable" data-caixaef="${mes}" style="margin-bottom:10px"><div class="l">Efectiu acumulat</div><div class="v num">${eur0(efAcum)}</div></div>
+      <div class="kpi clickable" data-caixatot="${mes}" style="margin-bottom:6px"><div class="l">Efectiu acumulat</div><div class="v num">${eur0(totalAcum)}</div></div>
+      <div class="kpi clickable" data-caixaef="${mes}" style="margin-bottom:10px"><div class="l">Efectiu normal</div><div class="v num">${eur0(efAcum)}</div></div>
       <div class="row2">
         <div><label for="cx_ajust">Ajust (+/−)</label><input id="cx_ajust" class="num" inputmode="decimal" value="${ajust||''}"></div>
         <div><label for="cx_banc">Efectiu bancari</label><input id="cx_banc" class="num" inputmode="decimal" value="${banc??''}"></div>
       </div>
       <button class="primary" id="cx_desa" data-mes="${mes}" style="margin-top:8px">Desa</button>
-      <p class="muted" style="margin:6px 2px 0">L'efectiu comença amb l'acumulat del mes anterior i hi suma cada setmana. L'ajust és per corregir manualment; l'efectiu bancari és un valor a part, sense fórmula.</p>
+      <p class="muted" style="margin:6px 2px 0">Efectiu acumulat = efectiu bancari + efectiu normal − factures pendents de pagar. L'efectiu normal comença amb l'acumulat del mes anterior i hi suma cada setmana (ajust manual a part); l'efectiu bancari és un valor a part, sense fórmula.</p>
     </div>`;
   }
   return h;
@@ -846,9 +871,25 @@ function breakdownCaixaHTML(mes){
   return h;
 }
 function obreBreakdownCaixa(mes){
-  modal(mTitle('Efectiu acumulat · '+MESOS[mes]+' '+S.activeYear)+breakdownCaixaHTML(mes),el=>{
+  modal(mTitle('Efectiu normal · '+MESOS[mes]+' '+S.activeYear)+breakdownCaixaHTML(mes),el=>{
     el.querySelectorAll('[data-mk]').forEach(x=>x.addEventListener('click',()=>{const p=x.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));
     el.querySelectorAll('[data-caixaprev]').forEach(x=>x.addEventListener('click',()=>obreBreakdownCaixa(parseInt(x.dataset.caixaprev))));
+  });
+}
+/* ---- Detall del gran "Efectiu acumulat": bancari + normal − pendents ---- */
+function breakdownCaixaTotalHTML(mes){
+  const efAcum=caixaEfectiuMes(mes), banc=caixaBancariMes(mes)||0, pend=facturesPendentsTotal();
+  const tot=r2(banc+efAcum-pend);
+  let h='<div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">Import</th></tr></thead><tbody>';
+  h+=`<tr><td>Efectiu bancari</td><td class="n">${eur0(banc)}</td></tr>`;
+  h+=`<tr class="clickable" data-caixaef="${mes}"><td>Efectiu normal</td><td class="n">${eur0(efAcum)}</td></tr>`;
+  h+=`<tr><td>− Factures pendents de pagar</td><td class="n">${eur0(-pend)}</td></tr>`;
+  h+=`<tr class="total"><td>Efectiu acumulat</td><td class="n"><b>${eur0(tot)}</b></td></tr></tbody></table></div>`;
+  return h;
+}
+function obreBreakdownCaixaTotal(mes){
+  modal(mTitle('Efectiu acumulat · '+MESOS[mes]+' '+S.activeYear)+breakdownCaixaTotalHTML(mes),el=>{
+    el.querySelectorAll('[data-caixaef]').forEach(x=>x.addEventListener('click',()=>obreBreakdownCaixa(parseInt(x.dataset.caixaef))));
   });
 }
 function clauMes(mes){return S.activeYear+'-'+String(mes+1).padStart(2,'0');}
@@ -871,6 +912,7 @@ function bindDietari(){
     if(s==='')delete Y().comTpvMes[mes]; else Y().comTpvMes[mes]=num(s);
     save(); go('dietari',{...ctx,mes});
   }));
+  document.querySelectorAll('[data-caixatot]').forEach(el=>el.addEventListener('click',()=>obreBreakdownCaixaTotal(parseInt(el.dataset.caixatot))));
   document.querySelectorAll('[data-caixaef]').forEach(el=>el.addEventListener('click',()=>obreBreakdownCaixa(parseInt(el.dataset.caixaef))));
   const cxDesa=document.querySelector('#cx_desa');
   if(cxDesa)cxDesa.addEventListener('click',()=>{
@@ -1113,7 +1155,7 @@ function vFactures(){
   if(fEstat==='Pagat')fs=fs.filter(f=>factEstat(f)==='Pagat');
   else if(fEstat==='Pendent')fs=fs.filter(f=>factEstat(f)!=='Pagat'); // inclou Parcial
   if(q)fs=fs.filter(f=>[f.num,f.empresa,f.concepte,f.talo,f.obs].concat(factPags(f).map(p=>p.talo)).some(v=>String(v??'').toLowerCase().includes(q)));
-  const pend=Y().factures.reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);
+  const pend=facturesPendentsTotal();
   let h=`<h2>Factures</h2>
   <div class="searchbar"><input id="f_q" type="search" placeholder="Cerca: proveïdor, núm. taló…" value="${esc(ctx.q||'')}"></div>
   <div class="subtabs">${['Tots','Pendent','Pagat'].map(e=>`<button data-estat="${e}" class="${e===fEstat?'on':''}">${e}</button>`).join('')}</div>
@@ -1259,10 +1301,19 @@ function bindMes(){
 function vCompres(){
   const tab=ctx.tab||'bacalla'; ctx.tab=tab;
   let h=`<h2>Compres</h2><div class="subtabs">
-    ${[['bacalla','Bacallà'],['olives','Olives'],['conserva','Conserva i altres']].map(([k,t])=>`<button data-tab="${k}" class="${k===tab?'on':''}">${t}</button>`).join('')}</div>`;
+    ${[['bacalla','Bacallà'],['olives','Olives'],['conserva','Conserva i altres'],['inventari','Inventari']].map(([k,t])=>`<button data-tab="${k}" class="${k===tab?'on':''}">${t}</button>`).join('')}</div>`;
   if(tab==='bacalla')h+=vBacalla();
   else if(tab==='olives')h+=vOlives();
-  else h+=vConserva();
+  else if(tab==='conserva')h+=vConserva();
+  else h+=vInventari();
+  return h;
+}
+function vInventari(){
+  const arts=invArticles();
+  if(!arts.length)return '<div class="card muted">Encara no hi ha cap línia de Fp/FpL/Despeses amb quantitat. Afegeix una quantitat i una unitat a una línia des de «Entrada del dia» i apareixerà aquí.</div>';
+  let h='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Article</th><th class="n">Quantitat</th><th class="n">Import</th></tr></thead><tbody>';
+  arts.forEach(a=>{h+=`<tr class="clickable" data-inv="${esc(a.key)}"><td>${esc(a.c)}</td><td class="n">${a.quant.toLocaleString('ca-ES')} ${esc(a.unitat)}</td><td class="n">${eur0(a.imp)}</td></tr>`;});
+  h+='</tbody></table></div></div>';
   return h;
 }
 function trimestre(isoStr){return isoStr?Math.floor((parseInt(isoStr.slice(5,7))-1)/3)+1:null;}
@@ -1271,6 +1322,8 @@ const QUATRIN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
 /* «Base de dades» de productes i proveïdors: valors únics ja introduïts, per triar-los de nou */
 function distinctVals(arr,key){return [...new Set((arr||[]).map(x=>String(x[key]||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
 function dlOpts(vals){return vals.map(v=>`<option value="${esc(v)}"></option>`).join('');}
+/* Total pendent de pagar d'un conjunt de factures (per defecte, totes les de l'any actiu) */
+function facturesPendentsTotal(fs){return (fs||Y().factures).reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);}
 function provList(){
   const vals=[...distinctVals(Y().bacalla,'prov'),...distinctVals(Y().conserva,'prov'),...distinctVals(Y().factures,'empresa')];
   return [...new Set(vals)].sort((a,b)=>a.localeCompare(b,'ca'));
@@ -1371,7 +1424,7 @@ function provResumHTML(nm){
   const low=nm.trim().toLowerCase();
   const fs=Y().factures.filter(f=>(f.empresa||'').trim().toLowerCase()===low).sort((a,b)=>(a.dataPagISO||'')<(b.dataPagISO||'')?1:-1);
   const tot=fs.reduce((s,f)=>s+num(f.imp),0);
-  const pend=fs.reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);
+  const pend=facturesPendentsTotal(fs);
   let h=`<div class="recline"><span class="l">Total facturat</span><span class="v num">${eur0(tot)} (${fs.length} fact.)</span></div>`;
   h+=`<div class="recline"><span class="l">Pendent de pagar</span><span class="v num">${eur0(pend)}</span></div>`;
   const tq={};fs.forEach(f=>factPags(f).forEach(p=>{const qn=quatri(p.data);if(qn!=null)tq[qn]=(tq[qn]||0)+num(p.imp);}));
@@ -1400,6 +1453,48 @@ function olivaResumHTML(prodId){
   return h;
 }
 function obreOlivaResum(prodId){const p=Y().olivesCat.find(x=>x.id===prodId);modal(mTitle(p?p.nom:'Oliva')+olivaResumHTML(prodId),el=>bindResumLinks(el));}
+/* ===== Inventari: articles amb quantitat de les línies Fp/FpL/Despeses del dia ===== */
+const INV_BLOCS=[['fpLines','Fp'],['fplLines','FpL'],['despLines','Despeses']];
+/* Totes les línies amb quantitat, de tots els blocs, amb la data i el bloc d'origen */
+function invLinies(){
+  const out=[];
+  Object.keys(Y().dies).forEach(ds=>{
+    const d=Y().dies[ds];
+    INV_BLOCS.forEach(([key,lab])=>{
+      (d[key]||[]).forEach(l=>{
+        if(l.quant==null||!(l.c||'').trim())return;
+        out.push({ds,bloc:lab,c:l.c.trim(),unitat:(l.unitat||'').trim(),quant:num(l.quant),imp:num(l.imp)});
+      });
+    });
+  });
+  return out;
+}
+/* Articles = (concepte, unitat) normalitzats, amb quantitat i import acumulats de l'any */
+function invArticles(){
+  const map={};
+  invLinies().forEach(l=>{
+    const k=l.c.toLowerCase()+'|'+l.unitat.toLowerCase();
+    if(!map[k])map[k]={key:k,c:l.c,unitat:l.unitat,quant:0,imp:0,n:0};
+    map[k].quant+=l.quant; map[k].imp+=l.imp; map[k].n++;
+  });
+  return Object.values(map).sort((a,b)=>a.c.localeCompare(b.c,'ca')||a.unitat.localeCompare(b.unitat,'ca'));
+}
+function invArticleResumHTML(key){
+  const lines=invLinies().filter(l=>(l.c.toLowerCase()+'|'+l.unitat.toLowerCase())===key).sort((a,b)=>a.ds<b.ds?1:-1);
+  const q=lines.reduce((s,l)=>s+l.quant,0), im=lines.reduce((s,l)=>s+l.imp,0);
+  let h=`<div class="recline"><span class="l">Total comprat</span><span class="v num">${q.toLocaleString('ca-ES')}${lines[0]?' '+esc(lines[0].unitat):''}</span></div>`;
+  h+=`<div class="recline"><span class="l">Import total</span><span class="v num">${eur0(im)}</span></div>`;
+  h+='<h3>Totes les compres ('+lines.length+')</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Bloc</th><th class="n">Quant.</th><th class="n">Import</th></tr></thead><tbody>';
+  lines.forEach(l=>{h+=`<tr class="clickable" data-dia="${l.ds}"><td>${dataCA(l.ds)}</td><td>${esc(l.bloc)}</td><td class="n">${l.quant.toLocaleString('ca-ES')}</td><td class="n">${eur0(l.imp)}</td></tr>`;});
+  h+='</tbody></table></div>';
+  return h;
+}
+function obreInvArticleResum(key){
+  const art=invArticles().find(a=>a.key===key); if(!art)return;
+  modal(mTitle(art.c+(art.unitat?' · '+art.unitat:''))+invArticleResumHTML(key),el=>{
+    el.querySelectorAll('tr[data-dia]').forEach(tr=>tr.addEventListener('click',()=>{tancaModal();go('avui',{data:tr.dataset.dia});}));
+  });
+}
 function formCompra(type,r){
   const cfg=COMPRA_CFG[type]; const nou=!r;
   r=r||{prov:'',data:'',diaCat:'FpL',productes:[]};
@@ -1657,13 +1752,14 @@ function bindCompres(){
   const og=$('#olGrid'); if(og)og.addEventListener('click',()=>go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:!ctx.olGrid,olGridMode:ctx.olGridMode}));
   const ogm=$('#olGridMode'); if(ogm)ogm.addEventListener('click',()=>{const nx={imp:'quant',quant:'pkg',pkg:'imp'};go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:ctx.olGrid,olGridMode:nx[ctx.olGridMode]||'quant'});});
   const ac=$('#addCat'); if(ac)ac.addEventListener('click',()=>formOlivaCat());
+  document.querySelectorAll('[data-inv]').forEach(el=>el.addEventListener('click',()=>obreInvArticleResum(el.dataset.inv)));
 }
 
 /* ================= VISTA: TRESORERIA ================= */
 function vTresoreria(){
   let ultim=null,ultimK=null;
   Object.keys(Y().tanc).sort().forEach(k=>{const t=Y().tanc[k];if(t.caixa!=null||t.banc!=null){ultim=t;ultimK=k;}});
-  const pend=Y().factures.reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);
+  const pend=facturesPendentsTotal();
   const caixa=ultim?ultim.caixa:null, banc=ultim?ultim.banc:null;
   const neta=(caixa||0)+(banc||0)-pend;
   return `<h2>Resum de tresoreria</h2>
