@@ -334,8 +334,8 @@ const VINCLES_DES='2026-07-22';
 /* Pagaments d'una factura: llista {data, talo, imp}. Una factura es pot pagar en diversos terminis
    (cada un amb data i taló). Si no hi ha llista de pagaments, es fa servir el pagament únic (dataPagISO/talo/imp). */
 function factPags(f){
-  if(Array.isArray(f.pagaments)&&f.pagaments.length)return f.pagaments.filter(p=>p&&p.data).map(p=>({data:p.data,talo:(p.talo||'').trim(),imp:num(p.imp)}));
-  if(f.estat==='Pagat'&&f.dataPagISO)return [{data:f.dataPagISO,talo:(f.talo||'').trim(),imp:num(f.imp)}];
+  if(Array.isArray(f.pagaments)&&f.pagaments.length)return f.pagaments.filter(p=>p&&p.data).map(p=>({id:p.id||'',data:p.data,talo:(p.talo||'').trim(),imp:num(p.imp),mode:p.mode||f.mode||'Taló',banc:!!p.banc}));
+  if(f.estat==='Pagat'&&f.dataPagISO)return [{id:'',data:f.dataPagISO,talo:(f.talo||'').trim(),imp:num(f.imp),mode:f.mode||'Taló',banc:false}];
   return [];
 }
 /* Un pagament amb data futura (taló emès a venir) encara NO està pagat: queda pendent fins al dia. */
@@ -352,39 +352,48 @@ function factEstat(f){
   return pg<=0?'Pendent':(pg+0.005<tot?'Parcial':'Pagat');
 }
 /* ----- Secció «Pagaments» reutilitzable (formulari de factura i de compra) ----- */
-function paysRowHTML(p){return `<div class="payrow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
+function paysRowHTML(p){const mode=(p&&p.mode)||'Taló';return `<div class="payrow" data-pid="${esc((p&&p.id)||'')}" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
     <div class="row3">
       <input type="date" class="pay-data" value="${(p&&p.data)||''}">
-      <input class="pay-talo" placeholder="Taló" value="${esc((p&&p.talo)||'')}">
+      <select class="pay-mode">${F_MODES.map(c=>`<option ${c===mode?'selected':''}>${c}</option>`).join('')}</select>
       <input class="num pay-imp" inputmode="decimal" placeholder="Import" value="${p&&p.imp!=null&&p.imp!==''?p.imp:''}">
+    </div>
+    <div class="row2" style="margin-top:6px">
+      <input class="pay-talo" placeholder="Núm. de taló" value="${esc((p&&p.talo)||'')}">
+      <label class="li-reclbl" title="Crea un moviment al compte corrent amb aquest pagament"><input type="checkbox" class="pay-banc" ${p&&p.banc?'checked':''}> apunt al banc</label>
     </div>
     <div style="display:flex;justify-content:flex-end;margin-top:4px"><button class="small pay-del" type="button">✕ treu</button></div>
   </div>`;}
 function paysSectionHTML(pays){
   return `<h3 style="margin:12px 0 2px">Pagaments</h3>
-    <p class="muted" style="margin:0 0 8px">Es pot pagar en diverses dates; cada pagament té la seva data, taló i import, i surt al dietari el seu dia. Deixa-ho buit si encara està pendent.</p>
-    <div class="pays-cont">${(pays.length?pays:[{data:'',talo:'',imp:''}]).map(paysRowHTML).join('')}</div>
+    <p class="muted" style="margin:0 0 8px">Es pot pagar en diverses dates; cada pagament té la seva data, forma de pagament i import, i surt al dietari el seu dia. Deixa-ho buit si encara està pendent. Marca <b>apunt al banc</b> si vols que el pagament també surti al compte corrent.</p>
+    <div class="pays-cont">${(pays.length?pays:[{data:'',talo:'',imp:'',mode:'Taló',banc:false}]).map(paysRowHTML).join('')}</div>
     <button class="small pays-add" type="button">+ pagament</button>
     <div class="recline"><span class="l">Pagat</span><span class="v num pays-sum">—</span></div>`;
 }
 /* Enllaça la secció; totalFn() retorna l'import total de la factura. Retorna llegir-pagaments(). */
 function bindPaysSection(el,totalFn){
   const cont=el.querySelector('.pays-cont'); if(!cont)return ()=>[];
-  const read=()=>[...cont.querySelectorAll('.payrow')].map(r=>({data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),imp:numOrNull(r.querySelector('.pay-imp').value)}));
+  const read=()=>[...cont.querySelectorAll('.payrow')].map(r=>({id:r.dataset.pid||'',
+    data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),
+    imp:numOrNull(r.querySelector('.pay-imp').value),mode:r.querySelector('.pay-mode').value,
+    banc:r.querySelector('.pay-banc').checked}));
   const recalc=()=>{const arr=read(),h=hui(),tot=num(totalFn());
     const pg=arr.filter(p=>p.data&&p.data<=h).reduce((s,p)=>s+num(p.imp),0);
     const pv=arr.filter(p=>p.data&&p.data>h).reduce((s,p)=>s+num(p.imp),0);
     const sum=pg+pv;
     el.querySelector('.pays-sum').textContent=eur0(pg)+(tot?' de '+eur0(tot):'')+
       (pv?' · previst '+eur0(pv):'')+(tot?(sum+0.005<tot?' · falta '+eur0(tot-sum):(sum>tot+0.005?' · excés':(pv?'':' ✓'))):'');};
-  const rerender=arr=>{cont.innerHTML=(arr.length?arr:[{data:'',talo:'',imp:''}]).map(paysRowHTML).join('');recalc();};
+  const rerender=arr=>{cont.innerHTML=(arr.length?arr:[{data:'',talo:'',imp:'',mode:'Taló',banc:false}]).map(paysRowHTML).join('');recalc();};
   cont.addEventListener('input',recalc);
   cont.addEventListener('click',e=>{const d=e.target.closest('.pay-del');if(!d)return;
     const arr=read(),i=[...cont.querySelectorAll('.payrow')].indexOf(d.closest('.payrow'));arr.splice(i,1);rerender(arr);});
-  el.querySelector('.pays-add').addEventListener('click',()=>{const arr=read();arr.push({data:'',talo:'',imp:''});rerender(arr);});
+  el.querySelector('.pays-add').addEventListener('click',()=>{const arr=read();arr.push({data:'',talo:'',imp:'',mode:'Taló',banc:false});rerender(arr);});
   recalc();
   el.addEventListener('input',e=>{if(!e.target.closest('.pays-cont'))recalc();});
-  return ()=>read().filter(p=>p.data||p.imp!=null).map(p=>({data:p.data,talo:p.talo,imp:p.imp==null?0:p.imp}));
+  // cada pagament rep un id estable: és el que lliga l'apunt del compte corrent amb el pagament
+  return ()=>read().filter(p=>p.data||p.imp!=null).map(p=>({id:p.id||uid(),data:p.data,talo:p.talo,
+    imp:p.imp==null?0:p.imp,mode:p.mode||'Taló',banc:!!p.banc}));
 }
 /* Aplica els pagaments a una factura i en recalcula l'estat. La data de la factura és la del
    primer pagament (el més antic), no l'ordre en què s'han escrit. */
@@ -398,8 +407,30 @@ function aplicaPagaments(f,pagaments){
   const p0=primerPagament(pagaments);
   f.dataPagISO=p0?p0.data:'';
   f.talo=p0?p0.talo:'';
+  if(p0&&p0.mode)f.mode=p0.mode;
   return f;
 }
+/* ----- Apunts al compte corrent generats des dels pagaments marcats «apunt al banc» -----
+   Van a la categoria «Pagament de factures», NO a «Despeses cc»: la factura ja compta al
+   dietari pel seu bloc (Fp/FpL/Despeses) i comptar-la també com a despesa c/c la duplicaria. */
+function catPagamentFactura(){return ccCatByRole('pagfact')||ccCatByRole('despcc');}
+function sincronitzaApuntsBanc(f){
+  if(!f||!f.id)return;
+  const pays=(f.pagaments||[]).filter(p=>p&&p.data&&p.id);
+  const vius=new Set(pays.filter(p=>p.banc).map(p=>p.id));
+  // treu els apunts d'aquesta factura que ja no toquen (pagament esborrat o casella desmarcada)
+  Y().cc=Y().cc.filter(m=>!(m.srcFact&&m.srcFact===f.id&&!vius.has(m.srcPag)));
+  const cat=catPagamentFactura();
+  pays.filter(p=>p.banc).forEach(p=>{
+    const base={data:p.data,concepte:'Factura #'+(f.num??'—')+(f.empresa?' · '+f.empresa:''),
+      catId:cat?cat.id:'altres',debe:num(p.imp),haber:null,
+      estat:p.data<=hui()?'Pagat':'Pendent',
+      obs:(p.mode||'Taló')+(p.talo?' núm. '+p.talo:''),srcFact:f.id,srcPag:p.id};
+    const m=Y().cc.find(x=>x.srcPag&&x.srcPag===p.id);
+    if(m)Object.assign(m,base); else Y().cc.push(Object.assign({id:uid(),recDia:false,tpvData:''},base));
+  });
+}
+function esborraApuntsBanc(factId){if(!factId)return;Y().cc=Y().cc.filter(m=>!(m.srcFact&&m.srcFact===factId));}
 /* Pagaments de factures fets un dia concret (només des del 22-07) */
 /* Text resum de l'estat de pagament d'una factura, per a les llistes */
 function factPagInfo(f){
@@ -435,6 +466,7 @@ function syncFacturaSrc(t,id,o){ // o={imp,dataISO,categoria,empresa,concepte}
 function deleteFacturaSrc(t,id){
   const f=Y().factures.find(x=>x.auto&&x.srcType===t&&x.srcId===id);
   if(f&&f.pdf){try{sb.storage.from('factures').remove([f.pdf]);}catch(e){}}
+  if(f)esborraApuntsBanc(f.id);
   Y().factures=Y().factures.filter(x=>!(x.auto&&x.srcType===t&&x.srcId===id));
 }
 function diaCatSelect(id,val){return `<select id="${id}">`+['Despeses','FpL','Fp'].map(c=>`<option ${c===(val||'Despeses')?'selected':''}>${c}</option>`).join('')+'</select>';}
@@ -467,6 +499,7 @@ function tpvBancDia(ds){if(!ds||ds<VINCLES_DES)return 0;const c=ccCatByRole('tpv
 function tpvNetDia(d,ds){const b=tpvBancDia(ds);return b>0?b:num(d?d.tpv:0);}
 function comissioTpvDia(d,ds){const b=tpvBancDia(ds);return b>0?num(d?d.tpv:0)-b:0;}
 function comissioTpvRang(isos){return (isos||[]).reduce((s,ds)=>s+comissioTpvDia(dia(ds),ds),0);}
+function tpvNetRang(isos){return (isos||[]).reduce((s,ds)=>s+tpvNetDia(dia(ds),ds),0);}
 function tpvBrutRang(isos){return (isos||[]).reduce((s,ds)=>{const d=dia(ds);return s+(d?num(d.tpv):0);},0);}
 function recDia(d,ds){let r=0;if(d){r+=num(d.ef)+tpvNetDia(d,ds)+lineRec(d.fpLines)+lineRec(d.fplLines)+lineRec(d.despLines);}if(ds)r+=factDiaRec(ds)+despCCDiaRec(ds);return r;}
 function totalsRang(isos){
@@ -693,9 +726,10 @@ function bindAvui(){
   const setm=setmanaDe(ds0);
   if(setm){
     const t=totalsRang(setm), dccSet=setm.reduce((s,ds)=>s+despCCDia(ds).reduce((a,m)=>a+num(m.debe),0),0);
+    const tpvNetSet=tpvNetRang(setm), comSet=comissioTpvRang(setm);
     $('#resumSetmanaAvui').innerHTML='<h3>Setmana ('+dataCA(setm[0])+' – '+dataCA(setm[setm.length-1])+')</h3>'+
-      kpiGridWk([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dccSet),'dcc']],setm[0])+
-      '<p class="muted" style="margin:6px 2px 0">Clica una xifra per veure d\'on surt.</p>';
+      kpiGridWk([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(t.ef),'ef'],['TPV net',eur0(tpvNetSet),'tpvnet'],['Comissió TPV',eur0(comSet),'comtpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dccSet),'dcc']],setm[0])+
+      '<p class="muted" style="margin:6px 2px 0">Clica una xifra per veure d\'on surt. La comissió de la setmana és només informativa: als totals del mes es descompta un sol cop, com sempre.</p>';
     bindWk($('#resumSetmanaAvui'));
   } else $('#resumSetmanaAvui').remove();
 }
@@ -704,7 +738,7 @@ function kpiGrid(pars){return '<div class="kpis">'+pars.map(([l,v])=>'<div class
 function kpiGridWk(pars,monIso){return '<div class="kpis">'+pars.map(([l,v,camp])=>'<div class="kpi'+(camp?' clickable':'')+'"'+(camp?' data-wk="'+monIso+'|'+camp+'"':'')+'><div class="l">'+l+(camp?' <span class="muted">›</span>':'')+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
 function bindWk(root){(root||document).querySelectorAll('[data-wk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.wk.split('|');obreBreakdownSetmana(p[0],p[1]);}));}
 /* ---- Detall d'on surt cada xifra del resum setmanal ---- */
-const CAMP_NOM={ef:'Efectiu',tpv:'TPV',rec:'Recaptació',desp:'Despeses',fp:'Fp',fpl:'FpL',dcc:'Despeses c/c'};
+const CAMP_NOM={ef:'Efectiu',tpv:'TPV',tpvnet:'TPV net',comtpv:'Comissió TPV',rec:'Recaptació',desp:'Despeses',fp:'Fp',fpl:'FpL',dcc:'Despeses c/c'};
 function liniesCamp(ds,camp){
   const d=dia(ds); const out=[];
   const catOl=id=>{const p=(Y().olivesCat||[]).find(x=>x.id===id);return p?p.nom:'oliva';};
@@ -712,6 +746,14 @@ function liniesCamp(ds,camp){
   else if(camp==='tpv'){
     if(d&&d.tpv!=null){out.push({desc:'TPV brut',imp:num(d.tpv)});
       const c=comissioTpvDia(d,ds); if(c)out.push({desc:'Comissió TPV',imp:-c,muted:true});}
+  }
+  else if(camp==='tpvnet'){ // aquí la comissió SÍ que resta: el total ha de donar el net
+    if(d&&d.tpv!=null){out.push({desc:'TPV brut',imp:num(d.tpv)});
+      const c=comissioTpvDia(d,ds); if(c)out.push({desc:'− Comissió que descompta el banc',imp:-c});}
+  }
+  else if(camp==='comtpv'){
+    const c=comissioTpvDia(d,ds);
+    if(c)out.push({desc:'Brut '+eur0(d?num(d.tpv):0)+' − ingrés al banc '+eur0(tpvBancDia(ds)),imp:c});
   }
   else if(camp==='fp'){
     (d&&d.fpLines||[]).forEach(l=>out.push({desc:l.c||'Fp del dia',imp:num(l.imp),rec:!!l.rec}));
@@ -755,6 +797,8 @@ function breakdownSetmanaHTML(w,camp){
   h+=`<tr class="total"><td colspan="2">Total setmana</td><td class="n">${eur0(tot)}</td>${showRec?'<td></td>':''}</tr></tbody></table></div>`;
   if(camp==='rec')h+='<p class="muted">Recaptació = per cada dia: efectiu + TPV net (brut − comissió) + línies de Fp/FpL/Despeses marcades «rec» + factures i despeses c/c marcades «rec».</p>';
   else if(camp==='tpv')h+='<p class="muted">El TPV brut compta sencer al total de TPV. La comissió es resta a la recaptació (TPV net = brut − comissió).</p>';
+  else if(camp==='tpvnet')h+='<p class="muted">TPV net = el que el banc t\'ingressa de veritat (brut menys la comissió que et descompta). Si un dia no hi ha ingrés del banc, el net és igual al brut.</p>';
+  else if(camp==='comtpv')h+='<p class="muted">Xifra informativa: la comissió de cada dia surt de comparar el TPV brut amb l\'ingrés del banc. Als totals del mes la comissió es descompta un sol cop, amb el sistema mensual de sempre.</p>';
   else if(showRec)h+='<p class="muted">Les línies «rec: no» (factures grosses/talons de la setmana) sumen al total de '+CAMP_NOM[camp]+' però no a la recaptació.</p>';
   return h;
 }
@@ -975,13 +1019,16 @@ function bindTancament(){
 }
 
 /* ================= VISTA: COMPTE CORRENT ================= */
-const CC_SEED=[{id:'despcc',nom:'Despeses cc',role:'despcc'},{id:'tpv',nom:'TPV',role:'tpv'},{id:'fpl',nom:'FpL',role:null},{id:'ingres',nom:'Ingrés',role:null},{id:'altres',nom:'Altres',role:null}];
+const CC_SEED=[{id:'despcc',nom:'Despeses cc',role:'despcc'},{id:'tpv',nom:'TPV',role:'tpv'},{id:'pagfact',nom:'Pagament de factures',role:'pagfact'},{id:'fpl',nom:'FpL',role:null},{id:'ingres',nom:'Ingrés',role:null},{id:'altres',nom:'Altres',role:null}];
 function ccCats(){if(!S.ccCats||!S.ccCats.length)S.ccCats=JSON.parse(JSON.stringify(CC_SEED));return S.ccCats;}
 function ccCat(id){return ccCats().find(c=>c.id===id)||null;}
 function ccCatByRole(role){return ccCats().find(c=>c.role===role)||null;}
 function ccCatNom(m){const c=ccCat(m.catId);return c?c.nom:(m.categoria||'—');}
 function migra(){
   ccCats();
+  // categoria pròpia dels pagaments de factures que es porten al banc (no és «Despeses cc»,
+  // perquè aquestes factures ja compten al dietari pel seu bloc de Fp/FpL/Despeses)
+  if(!ccCatByRole('pagfact')&&!ccCat('pagfact'))ccCats().push({id:'pagfact',nom:'Pagament de factures',role:'pagfact'});
   const byName={}; ccCats().forEach(c=>byName[c.nom.toLowerCase()]=c.id);
   Object.values(S.years||{}).forEach(y=>{(y.cc||[]).forEach(m=>{
     if(!m.catId){m.catId=byName[(m.categoria||'').toLowerCase()]||'altres';}
@@ -1135,6 +1182,7 @@ function formCC(m){
         catId:catId,estat:el.querySelector('#c_est').value,
         debe:numOrNull(el.querySelector('#c_debe').value),haber:numOrNull(el.querySelector('#c_haber').value),
         recDia:!!m.recDia,tpvData:catId===tpvId?(el.querySelector('#c_tpvdata').value||''):'',
+        srcFact:m.srcFact,srcPag:m.srcPag,   // manté el vincle amb el pagament que el va crear
         obs:el.querySelector('#c_obs').value.trim()};
       if(m.id){const i=Y().cc.findIndex(x=>x.id===m.id);Y().cc[i]=obj;}else Y().cc.push(obj);
       save();tancaModal();go('cc',{mes:mesDeIso(data)});
@@ -1282,6 +1330,7 @@ function formFactura(f){
       aplicaPagaments(obj,pagaments);           // pagaments + estat (Pendent/Parcial/Pagat) + compat
       await aplicaPdf(obj);
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
+      sincronitzaApuntsBanc(obj);
       save();tancaModal();render();
     });
     /* Converteix una factura normal en compra de bacallà/conserva: crea el registre a Compres
@@ -1309,6 +1358,7 @@ function formFactura(f){
     const del=el.querySelector('#x_del');
     if(del)del.addEventListener('click',()=>{if(confirm('Eliminar aquesta factura?')){
       if(f.pdf){try{sb.storage.from('factures').remove([f.pdf]);}catch(e){}}
+      esborraApuntsBanc(f.id);
       Y().factures=Y().factures.filter(x=>x.id!==f.id);save();tancaModal();render();}});
   });
 }
@@ -1595,7 +1645,7 @@ function formCompra(type,r){
       const noms=productes.map(p=>p.producte).filter(Boolean);
       syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:dataPag,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
       const fNou=Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===obj.id);
-      if(fNou){if(numFact!=null)fNou.num=numFact;aplicaPagaments(fNou,pagaments);await aplicaPdf(fNou);}
+      if(fNou){if(numFact!=null)fNou.num=numFact;aplicaPagaments(fNou,pagaments);await aplicaPdf(fNou);sincronitzaApuntsBanc(fNou);}
       save();tancaModal();render();
     });
     const del=el.querySelector('#cp_del');
