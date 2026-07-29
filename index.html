@@ -1406,14 +1406,6 @@ function vCompres(){
   else h+=vCompra('altres');
   return h;
 }
-function vInventari(){
-  const arts=invArticles();
-  if(!arts.length)return '<div class="card muted">Encara no hi ha cap línia de Fp/FpL/Despeses amb quantitat. Afegeix una quantitat i una unitat a una línia des de «Entrada del dia» i apareixerà aquí.</div>';
-  let h='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Article</th><th class="n">Quantitat</th><th class="n">Import</th></tr></thead><tbody>';
-  arts.forEach(a=>{h+=`<tr class="clickable" data-inv="${esc(a.key)}"><td>${esc(a.c)}</td><td class="n">${a.quant.toLocaleString('ca-ES')} ${esc(a.unitat)}</td><td class="n">${eur0(a.imp)}</td></tr>`;});
-  h+='</tbody></table></div></div>';
-  return h;
-}
 function trimestre(isoStr){return isoStr?Math.floor((parseInt(isoStr.slice(5,7))-1)/3)+1:null;}
 function quatri(iso){return iso?Math.floor((parseInt(iso.slice(5,7))-1)/4):null;}
 const QUATRIN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
@@ -1476,12 +1468,10 @@ const PLNK='color:var(--blau);cursor:pointer;text-decoration:underline';
 function vCompra(type){
   const cfg=COMPRA_CFG[type];
   const mix=!!cfg.unitatLliure;   // unitats diferents per producte: no es poden sumar entre elles
-  const tabs=[['compres','Compres per dia'],['producte','Resum per producte'],['quatri','Subtotals']];
-  if(mix)tabs.push(['inventari','Totals per article']);
+  const tabs=[['compres','Compres per dia'],['producte',mix?'Resum per article':'Resum per producte'],['quatri','Subtotals']];
   const sub=tabs.some(t=>t[0]===ctx.sub)?ctx.sub:'compres';
   const invs=(Y()[type]||[]).slice().sort((a,b)=>(compraData(type,a)||'')<(compraData(type,b)||'')?1:-1);
   let h=`<div class="subtabs">${tabs.map(([k,t])=>`<button data-sub="${k}" class="${k===sub?'on':''}">${t}</button>`).join('')}</div>`;
-  if(sub==='inventari')return h+vInventari();
   if(sub==='compres'){
     // A «Altres» hi conviuen dues coses: les factures i el que has anotat al dia a dia amb
     // quantitat (Fp/FpL/Despeses). Van barrejades per data, però cada cosa queda marcada.
@@ -1525,21 +1515,18 @@ function vCompra(type){
       h+='</tbody></table></div></div>';
     });
   } else if(sub==='producte'&&mix){
-    // cada parella (producte, unitat) és una fila: no es poden sumar kg amb caixes
-    const map={};
-    compraLines(type).forEach(p=>{if(!p.producte)return;
-      const k=p.producte.toLowerCase()+'|'+(p.unitat||'').toLowerCase();
-      if(!map[k])map[k]={nom:p.producte,unitat:p.unitat||'',q:0,imp:0};
-      map[k].q+=p.qty; map[k].imp+=p.imp;});
-    const arts=Object.values(map).sort((a,b)=>a.nom.localeCompare(b.nom,'ca')||a.unitat.localeCompare(b.unitat,'ca'));
-    if(!arts.length)h+='<div class="card muted">Encara no hi ha productes. Afegeix factures amb el botó +.</div>';
+    // Una sola llista d'articles: els de les factures i els del dia a dia, junts.
+    // Cada parella (nom, unitat) és una fila: no es poden sumar kg amb caixes.
+    const arts=articlesAltres();
+    if(!arts.length)h+='<div class="card muted">Encara no hi ha articles. Crea una factura amb el botó +, o posa quantitat i unitat a una línia de Fp/FpL/Despeses des d\'«Entrada del dia».</div>';
     else{
-      h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">Quantitat</th><th class="n">Import</th><th class="n">€/unitat</th></tr></thead><tbody>';
+      h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Article</th><th class="n">Quantitat</th><th class="n">Import</th><th class="n">€/unitat</th><th>D\'on surt</th></tr></thead><tbody>';
       let gim=0;
       arts.forEach(a=>{gim+=a.imp;
-        h+=`<tr class="clickable" data-prodresum="${type}|${esc(a.nom)}"><td>${esc(a.nom)}</td><td class="n">${a.q.toLocaleString('ca-ES')} ${esc(a.unitat)}</td><td class="n">${eur0(a.imp)}</td><td class="n">${a.q?(a.imp/a.q).toFixed(2):'—'}</td></tr>`;});
-      h+=`<tr class="total"><td>Total</td><td></td><td class="n">${eur0(gim)}</td><td></td></tr>`;
-      h+='</tbody></table></div></div><div class="muted" style="font-size:.8rem">Cada producte se separa per unitat (kg, caixes, unitats…): no es poden sumar entre elles. Els imports són sense IVA.</div>';
+        const font=(a.qFact&&a.qDia)?'les dues':(a.qFact?'factures':'dia a dia');
+        h+=`<tr class="clickable" data-artalt="${esc(a.key)}"><td>${esc(a.nom)}</td><td class="n">${a.q.toLocaleString('ca-ES')} ${esc(a.unitat)}</td><td class="n">${eur0(a.imp)}</td><td class="n">${a.q?(a.imp/a.q).toFixed(2):'—'}</td><td class="muted">${font}</td></tr>`;});
+      h+=`<tr class="total"><td>Total</td><td></td><td class="n">${eur0(gim)}</td><td colspan="2"></td></tr>`;
+      h+='</tbody></table></div></div><div class="muted" style="font-size:.8rem">Junta el que compres per factura i el que apuntes al dia a dia amb quantitat. Cada article se separa per unitat (kg, caixes, unitats…): no es poden sumar entre elles. Els imports són sense IVA. Clica un article per veure'+"'"+'n el detall.</div>';
     }
   } else if(sub==='producte'){
     const names=prodNames(type);
@@ -1672,29 +1659,55 @@ function invLinies(){
   });
   return out;
 }
-/* Articles = (concepte, unitat) normalitzats, amb quantitat i import acumulats de l'any */
-function invArticles(){
+/* Articles d'«Altres» = (nom, unitat) normalitzats, ajuntant les DUES fonts: els productes de
+   les factures i el que has apuntat al dia a dia amb quantitat. */
+function artKey(nom,unitat){return (nom||'').trim().toLowerCase()+'|'+(unitat||'').trim().toLowerCase();}
+function articlesAltres(){
   const map={};
-  invLinies().forEach(l=>{
-    const k=l.c.toLowerCase()+'|'+l.unitat.toLowerCase();
-    if(!map[k])map[k]={key:k,c:l.c,unitat:l.unitat,quant:0,imp:0,n:0};
-    map[k].quant+=l.quant; map[k].imp+=l.imp; map[k].n++;
-  });
-  return Object.values(map).sort((a,b)=>a.c.localeCompare(b.c,'ca')||a.unitat.localeCompare(b.unitat,'ca'));
+  const posa=(nom,unitat,q,imp,origen)=>{
+    if(!(nom||'').trim())return;
+    const k=artKey(nom,unitat);
+    if(!map[k])map[k]={key:k,nom:nom.trim(),unitat:(unitat||'').trim(),q:0,imp:0,qFact:0,impFact:0,qDia:0,impDia:0};
+    map[k].q+=q; map[k].imp+=imp;
+    if(origen==='f'){map[k].qFact+=q;map[k].impFact+=imp;}else{map[k].qDia+=q;map[k].impDia+=imp;}
+  };
+  compraLines('altres').forEach(p=>posa(p.producte,p.unitat,p.qty,p.imp,'f'));
+  invLinies().forEach(l=>posa(l.c,l.unitat,l.quant,l.imp,'d'));
+  return Object.values(map).sort((a,b)=>a.nom.localeCompare(b.nom,'ca')||a.unitat.localeCompare(b.unitat,'ca'));
 }
-function invArticleResumHTML(key){
-  const lines=invLinies().filter(l=>(l.c.toLowerCase()+'|'+l.unitat.toLowerCase())===key).sort((a,b)=>a.ds<b.ds?1:-1);
-  const q=lines.reduce((s,l)=>s+l.quant,0), im=lines.reduce((s,l)=>s+l.imp,0);
-  let h=`<div class="recline"><span class="l">Total comprat</span><span class="v num">${q.toLocaleString('ca-ES')}${lines[0]?' '+esc(lines[0].unitat):''}</span></div>`;
-  h+=`<div class="recline"><span class="l">Import total</span><span class="v num">${eur0(im)}</span></div>`;
-  h+='<h3>Totes les compres ('+lines.length+')</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Bloc</th><th class="n">Quant.</th><th class="n">Import</th></tr></thead><tbody>';
-  lines.forEach(l=>{h+=`<tr class="clickable" data-dia="${l.ds}"><td>${dataCA(l.ds)}</td><td>${esc(l.bloc)}</td><td class="n">${l.quant.toLocaleString('ca-ES')}</td><td class="n">${eur0(l.imp)}</td></tr>`;});
-  h+='</tbody></table></div>';
+/* Totes les entrades d'un article, de les dues fonts, ordenades per data */
+function liniesArticleAltres(key){
+  const out=[];
+  compraLines('altres').forEach(p=>{if(artKey(p.producte,p.unitat)===key)
+    out.push({data:p.data,origen:'Factura',detall:p.prov||'',q:p.qty,imp:p.imp});});
+  invLinies().forEach(l=>{if(artKey(l.c,l.unitat)===key)
+    out.push({data:l.ds,origen:'Dia a dia',detall:l.bloc,q:l.quant,imp:l.imp,ds:l.ds});});
+  return out.sort((a,b)=>(a.data||'')<(b.data||'')?1:-1);
+}
+function articleAltresHTML(key){
+  const art=articlesAltres().find(a=>a.key===key); if(!art)return '';
+  const ls=liniesArticleAltres(key);
+  const u=art.unitat||'unitat';
+  let h=`<div class="recline"><span class="l">Total comprat</span><span class="v num">${art.q.toLocaleString('ca-ES')} ${esc(art.unitat)} · ${eur0(art.imp)}</span></div>`;
+  h+=`<div class="recline"><span class="l">Cost mitjà</span><span class="v num">${art.q?(art.imp/art.q).toFixed(2)+' €/'+esc(u):'—'}</span></div>`;
+  if(art.qFact&&art.qDia){
+    h+=`<div class="recline"><span class="l">De factures</span><span class="v num">${art.qFact.toLocaleString('ca-ES')} ${esc(art.unitat)} · ${eur0(art.impFact)}</span></div>`;
+    h+=`<div class="recline"><span class="l">Del dia a dia</span><span class="v num">${art.qDia.toLocaleString('ca-ES')} ${esc(art.unitat)} · ${eur0(art.impDia)}</span></div>`;
+  }
+  const tq={};ls.forEach(f=>{const qn=quatri(f.data);if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=f.q;tq[qn].imp+=f.imp;}});
+  h+='<h3>Per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">Quantitat</th><th class="n">Import</th></tr></thead><tbody>';
+  [0,1,2].forEach(qn=>{if(tq[qn])h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td></tr>`;});
+  h+='</tbody></table>';
+  h+='<h3>Totes les compres ('+ls.length+')</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>D\'on surt</th><th class="n">Quantitat</th><th class="n">Import</th></tr></thead><tbody>';
+  ls.forEach(f=>{
+    const clic=f.ds?` class="clickable" data-dia="${f.ds}"`:'';
+    h+=`<tr${clic}><td>${f.data?dataCA(f.data):'—'}</td><td>${esc(f.origen)}${f.detall?' · '+esc(f.detall):''}</td><td class="n">${f.q.toLocaleString('ca-ES')}</td><td class="n">${eur0(f.imp)}</td></tr>`;});
+  h+='</tbody></table></div><p class="muted">Les línies «Dia a dia» venen de les quantitats que poses a Fp/FpL/Despeses a l\'entrada del dia; clica-hi per obrir aquell dia.</p>';
   return h;
 }
-function obreInvArticleResum(key){
-  const art=invArticles().find(a=>a.key===key); if(!art)return;
-  modal(mTitle(art.c+(art.unitat?' · '+art.unitat:''))+invArticleResumHTML(key),el=>{
+function obreArticleAltres(key){
+  const art=articlesAltres().find(a=>a.key===key); if(!art)return;
+  modal(mTitle(art.nom+(art.unitat?' · '+art.unitat:''))+articleAltresHTML(key),el=>{
     el.querySelectorAll('tr[data-dia]').forEach(tr=>tr.addEventListener('click',()=>{tancaModal();go('avui',{data:tr.dataset.dia});}));
   });
 }
@@ -2004,7 +2017,7 @@ function bindCompres(){
   const og=$('#olGrid'); if(og)og.addEventListener('click',()=>go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:!ctx.olGrid,olGridMode:ctx.olGridMode}));
   const ogm=$('#olGridMode'); if(ogm)ogm.addEventListener('click',()=>{const nx={imp:'quant',quant:'pkg',pkg:'imp'};go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:ctx.olGrid,olGridMode:nx[ctx.olGridMode]||'quant'});});
   const ac=$('#addCat'); if(ac)ac.addEventListener('click',()=>formOlivaCat());
-  document.querySelectorAll('[data-inv]').forEach(el=>el.addEventListener('click',()=>obreInvArticleResum(el.dataset.inv)));
+  document.querySelectorAll('[data-artalt]').forEach(el=>el.addEventListener('click',()=>obreArticleAltres(el.dataset.artalt)));
   document.querySelectorAll('[data-diaitem]').forEach(el=>el.addEventListener('click',()=>go('avui',{data:el.dataset.diaitem})));
 }
 
