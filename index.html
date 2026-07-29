@@ -1349,7 +1349,7 @@ function formFactura(f){
         '\n\nLa factura es manté (mateix número i pagaments) i queda lligada a la compra.'))return;
       const r={id:uid(),prov:el.querySelector('#x_emp').value.trim(),data:f.dataPagISO||'',
         diaCat:['Despeses','FpL','Fp'].includes(f.categoria)?f.categoria:'FpL',
-        productes:[{producte:prod,qty:qty,imp:imp,pv:null}]};
+        productes:[{producte:prod,qty:qty,imp:imp,pv:null,iva:null}]};
       Y()[type].push(r);
       const fx=Y().factures.find(x=>x.id===f.id);
       if(fx){fx.auto=true;fx.srcType=type;fx.srcId=r.id;}
@@ -1420,7 +1420,20 @@ const COMPRES_TABS=[['bacalla','Bacallà'],['olives','Olives'],['conserva','Cons
 function tabNomDefecte(k){const t=COMPRES_TABS.find(x=>x[0]===k);return t?t[1]:k;}
 function tabNom(k){const n=(S.compresNoms||{})[k];return (n&&n.trim())?n.trim():tabNomDefecte(k);}
 function titolCompra(type){return tabNom(type).toLowerCase();}
-function compraTotal(r){return (r.productes||[]).reduce((s,p)=>s+num(p.imp),0);}
+/* Imports d'una compra:
+   - base   = suma dels imports escrits a cada producte (SENSE IVA). És el que fan servir el
+              €/kg, el resum per producte i els subtotals: així no es mou res de l'històric.
+   - ambIva = base + l'IVA de cada producte (cada línia pot dur el seu %; buit = 0).
+   - total  = l'import final de la factura. Si l'escrius tu, mana el teu; si no, és ambIva.
+              És el que compta a la factura, al dietari i al banc.
+   - descompte = ambIva − total (el que et rebaixa el proveïdor).                                */
+const IVA_DEFECTE=11.4; // 10% d'IVA + 1,4% de recàrrec d'equivalència
+function ivaDefecte(){return S.ivaDefecte!=null?num(S.ivaDefecte):IVA_DEFECTE;}
+function compraBase(r){return (r.productes||[]).reduce((s,p)=>s+num(p.imp),0);}
+function compraIva(r){return r2((r.productes||[]).reduce((s,p)=>s+num(p.imp)*num(p.iva)/100,0));}
+function compraAmbIva(r){return r2(compraBase(r)+compraIva(r));}
+function compraTotal(r){return r&&r.total!=null&&r.total!==''?num(r.total):compraAmbIva(r);}
+function compraDescompte(r){return r2(compraAmbIva(r)-compraTotal(r));}
 function compraQty(r){return (r.productes||[]).reduce((s,p)=>s+num(p.qty),0);}
 /* Factura lligada a una compra i pagaments que hi consten */
 function compraFactura(type,id){return Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===id)||null;}
@@ -1447,9 +1460,16 @@ function vCompra(type){
         <div class="item clickable" data-editinv="${type}|${r.id}" style="padding:2px 0 6px">
           <div><div class="t">${r.prov?`<span style="${PLNK}" data-provresum="${esc(r.prov)}">${esc(r.prov)}</span>`:'(sense proveïdor)'}</div><div class="s">${(dd=>dd?dataCA(dd):'sense data')(compraData(type,r))}${(np=>np>1?' · '+np+' pagaments':'')(compraPags(type,r).length)} · ${(r.productes||[]).length} producte(s)</div></div>
           <div class="imp num">${eur0(compraTotal(r))}</div></div>
-        <div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th><th class="n">Venda</th><th class="n">% Ben.</th></tr></thead><tbody>`;
+        <div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">IVA</th><th class="n">€/${cfg.unitLab}</th><th class="n">Venda</th><th class="n">% Ben.</th></tr></thead><tbody>`;
       (r.productes||[]).forEach(p=>{const qty=num(p.qty),imp=num(p.imp),cost=qty?imp/qty:0,ben=cost&&p.pv!=null?100*(num(p.pv)-cost)/cost:null;
-        h+=`<tr><td><span style="${PLNK}" data-prodresum="${type}|${esc(p.producte||'')}">${esc(p.producte||'—')}</span></td><td class="n">${qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(imp)}</td><td class="n">${cost?cost.toFixed(2):'—'}</td><td class="n">${p.pv!=null?num(p.pv).toFixed(2):'—'}</td><td class="n ${ben!=null?(ben>=0?'pos':'neg'):''}">${ben!=null?ben.toFixed(1)+'%':'—'}</td></tr>`;});
+        h+=`<tr><td><span style="${PLNK}" data-prodresum="${type}|${esc(p.producte||'')}">${esc(p.producte||'—')}</span></td><td class="n">${qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(imp)}</td><td class="n">${num(p.iva)?num(p.iva).toLocaleString('ca-ES')+' %':'—'}</td><td class="n">${cost?cost.toFixed(2):'—'}</td><td class="n">${p.pv!=null?num(p.pv).toFixed(2):'—'}</td><td class="n ${ben!=null?(ben>=0?'pos':'neg'):''}">${ben!=null?ben.toFixed(1)+'%':'—'}</td></tr>`;});
+      const rIva=compraIva(r), rDesc=compraDescompte(r);
+      if(rIva||rDesc){
+        h+=`<tr class="muted"><td colspan="2">Base sense IVA</td><td class="n">${eur0(compraBase(r))}</td><td colspan="4"></td></tr>`;
+        if(rIva)h+=`<tr class="muted"><td colspan="2">+ IVA</td><td class="n">${eur0(rIva)}</td><td colspan="4"></td></tr>`;
+        if(rDesc)h+=`<tr class="muted"><td colspan="2">− Descompte</td><td class="n">${eur0(-rDesc)}</td><td colspan="4"></td></tr>`;
+        h+=`<tr class="total"><td colspan="2">Total factura</td><td class="n">${eur0(compraTotal(r))}</td><td colspan="4"></td></tr>`;
+      }
       h+='</tbody></table></div></div>';
     });
   } else if(sub==='producte'){
@@ -1466,19 +1486,30 @@ function vCompra(type){
   } else {
     const pk=(im,q)=>q?(im/q).toFixed(2):'—';
     const tq={};let senseQq=0,senseQi=0;
-    invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraTotal(r);}else{senseQq+=compraQty(r);senseQi+=compraTotal(r);}});
+    invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraBase(r);}else{senseQq+=compraQty(r);senseQi+=compraBase(r);}});
     h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td><td class="n">${pk(tq[qn].imp,tq[qn].q)}</td></tr>`;}});
     if(senseQq||senseQi){tq0+=senseQq;ti0+=senseQi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td><td class="n">${senseQq.toLocaleString('ca-ES')}</td><td class="n">${eur0(senseQi)}</td><td class="n">${pk(senseQi,senseQq)}</td></tr>`;}
     h+=`<tr class="total"><td>Any</td><td class="n">${tq0.toLocaleString('ca-ES')}</td><td class="n">${eur0(ti0)}</td><td class="n">${pk(ti0,tq0)}</td></tr></tbody></table></div>`;
     const tm=Array.from({length:12},()=>({q:0,imp:0}));
     let senseMq=0,senseMi=0;
-    invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraTotal(r);}}else{senseMq+=compraQty(r);senseMi+=compraTotal(r);}});
+    invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraBase(r);}}else{senseMq+=compraQty(r);senseMi+=compraBase(r);}});
     h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
     let am=0,ai=0;
     for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${tm[m].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tm[m].imp)}</td><td class="n">${pk(tm[m].imp,tm[m].q)}</td></tr>`;}}
     if(senseMq||senseMi){am+=senseMq;ai+=senseMi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td><td class="n">${senseMq.toLocaleString('ca-ES')}</td><td class="n">${eur0(senseMi)}</td><td class="n">${pk(senseMi,senseMq)}</td></tr>`;}
     h+=`<tr class="total"><td>Any</td><td class="n">${am.toLocaleString('ca-ES')}</td><td class="n">${eur0(ai)}</td><td class="n">${pk(ai,am)}</td></tr></tbody></table></div></div>`;
+    // Pont entre la base (les taules de dalt) i el que realment surt del banc
+    const totIva=r2(invs.reduce((s,r)=>s+compraIva(r),0)), totDesc=r2(invs.reduce((s,r)=>s+compraDescompte(r),0)),
+          totPagat=r2(invs.reduce((s,r)=>s+compraTotal(r),0));
+    if(totIva||totDesc){
+      h+=`<div class="card"><h3>De la base al que has pagat</h3><table><tbody>
+        <tr><td>Base dels productes (sense IVA)</td><td class="n">${eur0(ai)}</td></tr>
+        <tr><td>+ IVA</td><td class="n">${eur0(totIva)}</td></tr>
+        <tr><td>− Descomptes</td><td class="n">${eur0(-totDesc)}</td></tr>
+        <tr class="total"><td>Total pagat de l'any</td><td class="n">${eur0(totPagat)}</td></tr>
+        </tbody></table><p class="muted" style="margin:8px 2px 0">Les taules de dalt van sense IVA, perquè el €/${cfg.unitLab} es pugui comparar amb el d'abans. Això és el pont cap al que realment surt del banc.</p></div>`;
+    }
   }
   return h;
 }
@@ -1590,13 +1621,16 @@ function formCompra(type,r){
   const cfg=COMPRA_CFG[type]; const nou=!r;
   r=r||{prov:'',data:'',diaCat:'FpL',productes:[]};
   const fLig=r.id?Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===r.id):null;
-  const prods=(r.productes&&r.productes.length)?r.productes.map(p=>({...p})):[{producte:'',qty:'',imp:'',pv:''}];
+  const prods=(r.productes&&r.productes.length)?r.productes.map(p=>({...p})):[{producte:'',qty:'',imp:'',pv:'',iva:''}];
   const dlId='dl_prod_'+type;
   const prowHTML=p=>`<div class="prow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
     <input class="p-nom" list="${dlId}" placeholder="Producte" value="${esc(p.producte||'')}">
-    <div class="row3" style="margin-top:6px">
+    <div class="row2" style="margin-top:6px">
       <input class="num p-qty" inputmode="decimal" placeholder="${cfg.qtyLab}" value="${p.qty??''}">
-      <input class="num p-imp" inputmode="decimal" placeholder="Import" value="${p.imp??''}">
+      <input class="num p-imp" inputmode="decimal" placeholder="Import sense IVA" value="${p.imp??''}">
+    </div>
+    <div class="row2" style="margin-top:6px">
+      <input class="num p-iva" inputmode="decimal" placeholder="IVA %" value="${p.iva??''}">
       <input class="num p-pv" inputmode="decimal" placeholder="P. venda" value="${p.pv??''}">
     </div>
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
@@ -1611,8 +1645,16 @@ function formCompra(type,r){
     <datalist id="${dlId}">${dlOpts(prodNames(type))}</datalist>
     <h3>Productes</h3>
     <div id="cp_prods">${prods.map(prowHTML).join('')}</div>
-    <button class="small" id="cp_add" type="button">+ producte</button>
-    <div class="recline"><span class="l">Total factura</span><span class="v num" id="cp_tot">—</span></div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="small" id="cp_add" type="button">+ producte</button>
+      <button class="small" id="cp_ivaAll" type="button">Aplica IVA ${ivaDefecte().toLocaleString('ca-ES')}% a tots</button>
+    </div>
+    <div class="recline"><span class="l">Base (suma dels productes)</span><span class="v num" id="cp_base">—</span></div>
+    <div class="recline"><span class="l">+ IVA</span><span class="v num" id="cp_iva">—</span></div>
+    <div class="recline"><span class="l">Suma amb IVA</span><span class="v num" id="cp_sumiva">—</span></div>
+    <label for="cp_total">Import total de la factura</label>
+    <input id="cp_total" class="num" inputmode="decimal" placeholder="Deixa-ho buit si és la suma amb IVA" value="${r.total??''}">
+    <div class="recline"><span class="l">Descompte</span><span class="v num" id="cp_desc">—</span></div>
     ${paysSectionHTML(((ps)=>ps.length?ps:(r.data?[{data:r.data,talo:'',imp:compraTotal(r)}]:[]))(fLig?factPags(fLig).map(p=>({...p})):[]))}
     ${pdfFormatHTML(fLig)}
     <p class="muted" style="margin:4px 0">Es crea una factura lligada amb el total. La data de la factura és la del pagament. Mentre no hi hagi cap pagament fet, la factura surt com a <b>pendent</b> (un taló amb data futura també queda pendent fins que arribi el dia).</p>
@@ -1620,17 +1662,38 @@ function formCompra(type,r){
     ${nou?'':'<button class="danger" id="cp_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     const cont=el.querySelector('#cp_prods');
-    const readProds=()=>[...cont.querySelectorAll('.prow')].map(row=>({producte:row.querySelector('.p-nom').value.trim(),qty:numOrNull(row.querySelector('.p-qty').value),imp:numOrNull(row.querySelector('.p-imp').value),pv:numOrNull(row.querySelector('.p-pv').value)}));
-    const recalc=()=>{let tot=0;cont.querySelectorAll('.prow').forEach(row=>{const qty=num(row.querySelector('.p-qty').value),imp=num(row.querySelector('.p-imp').value),pv=num(row.querySelector('.p-pv').value);tot+=imp;const cost=qty?imp/qty:0,ben=cost&&pv?100*(pv-cost)/cost:null;row.querySelector('.p-calc').textContent=cost?('Cost '+cost.toFixed(2)+'/'+cfg.unitLab+(ben!=null?' · Benef. '+ben.toFixed(1)+'%':'')):'';});el.querySelector('#cp_tot').textContent=eur0(tot);};
+    const readProds=()=>[...cont.querySelectorAll('.prow')].map(row=>({producte:row.querySelector('.p-nom').value.trim(),qty:numOrNull(row.querySelector('.p-qty').value),imp:numOrNull(row.querySelector('.p-imp').value),pv:numOrNull(row.querySelector('.p-pv').value),iva:numOrNull(row.querySelector('.p-iva').value)}));
+    const totalManual=()=>numOrNull(el.querySelector('#cp_total').value);
+    const compraForm=()=>({productes:readProds(),total:totalManual()});
+    const recalc=()=>{
+      cont.querySelectorAll('.prow').forEach(row=>{
+        const qty=num(row.querySelector('.p-qty').value),imp=num(row.querySelector('.p-imp').value),
+              pv=num(row.querySelector('.p-pv').value),ivp=num(row.querySelector('.p-iva').value);
+        const cost=qty?imp/qty:0,ben=cost&&pv?100*(pv-cost)/cost:null;
+        const txtCost=cost?('Cost '+cost.toFixed(2)+'/'+cfg.unitLab+(ben!=null?' · Benef. '+ben.toFixed(1)+'%':'')):'';
+        const txtIva=ivp?((txtCost?' · ':'')+'IVA '+eur0(r2(imp*ivp/100))):'';
+        row.querySelector('.p-calc').textContent=txtCost+txtIva;
+      });
+      const c=compraForm(), base=compraBase(c), iva=compraIva(c), sum=compraAmbIva(c),
+            tot=compraTotal(c), desc=compraDescompte(c);
+      el.querySelector('#cp_base').textContent=eur0(base);
+      el.querySelector('#cp_iva').textContent=eur0(iva);
+      el.querySelector('#cp_sumiva').textContent=eur0(sum);
+      const dEl=el.querySelector('#cp_desc');
+      dEl.textContent=eur0(desc)+(desc<-0.005?' (et cobren de més)':'')+' · pagues '+eur0(tot);
+      dEl.className='v num'+(Math.abs(desc)>0.005?(desc>0?' pos':' neg'):'');
+    };
     const rerender=arr=>{cont.innerHTML=arr.map(prowHTML).join('');recalc();};
     cont.addEventListener('input',recalc);
-    cont.addEventListener('click',e=>{const d=e.target.closest('.p-del');if(!d)return;const arr=readProds();const i=[...cont.querySelectorAll('.prow')].indexOf(d.closest('.prow'));arr.splice(i,1);if(!arr.length)arr.push({producte:'',qty:'',imp:'',pv:''});rerender(arr);});
-    el.querySelector('#cp_add').addEventListener('click',()=>{const arr=readProds();arr.push({producte:'',qty:'',imp:'',pv:''});rerender(arr);});
+    cont.addEventListener('click',e=>{const d=e.target.closest('.p-del');if(!d)return;const arr=readProds();const i=[...cont.querySelectorAll('.prow')].indexOf(d.closest('.prow'));arr.splice(i,1);if(!arr.length)arr.push({producte:'',qty:'',imp:'',pv:'',iva:''});rerender(arr);});
+    el.querySelector('#cp_add').addEventListener('click',()=>{const arr=readProds();arr.push({producte:'',qty:'',imp:'',pv:'',iva:''});rerender(arr);});
+    el.querySelector('#cp_ivaAll').addEventListener('click',()=>{const arr=readProds();arr.forEach(p=>{p.iva=ivaDefecte();});rerender(arr);});
+    el.querySelector('#cp_total').addEventListener('input',recalc);
     recalc();
-    const readPagaments=bindPaysSection(el,()=>compraTotal({productes:readProds()}));
+    const readPagaments=bindPaysSection(el,()=>compraTotal(compraForm()));
     const aplicaPdf=bindPdfFormat(el,fLig);
     el.querySelector('#cp_desa').addEventListener('click',async()=>{
-      const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null);
+      const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null||p.iva!=null);
       const pagaments=readPagaments();
       if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
       const numFact=numOrNull(el.querySelector('#cp_num').value);
@@ -1640,7 +1703,7 @@ function formCompra(type,r){
       }
       // la data de la compra és la del primer pagament (no hi ha cap altra data)
       const dataPag=(primerPagament(pagaments)||{}).data||'';
-      const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:dataPag,diaCat:el.querySelector('#cp_cat').value,productes:productes};
+      const obj={id:r.id||uid(),prov:el.querySelector('#cp_prov').value.trim(),data:dataPag,diaCat:el.querySelector('#cp_cat').value,productes:productes,total:totalManual()};
       if(r.id){const i=Y()[type].findIndex(x=>x.id===r.id);Y()[type][i]=obj;}else Y()[type].push(obj);
       const noms=productes.map(p=>p.producte).filter(Boolean);
       syncFacturaSrc(type,obj.id,{imp:compraTotal(obj),dataISO:dataPag,categoria:obj.diaCat,empresa:obj.prov,concepte:cfg.concepte+(noms.length?' · '+noms.join(', '):'')});
@@ -1971,9 +2034,9 @@ function exportaXLSX(){
   Y().factures.slice().sort((a,b)=>(a.num||0)-(b.num||0)).forEach(f=>{const pays=factPags(f);const pagStr=pays.map(p=>(p.data||'')+(p.talo?' · '+p.talo:'')+' · '+n0(p.imp)).join(' | ');ff.push([n0(f.num),f.empresa||'',n0(f.imp),f.concepte||'',f.categoria||'',factEstat(f),f.mode||'',n0(factPagat(f)),pagStr,f.recDia?'sí':'',f.format||'',f.pdf?'sí':'',f.obs||'']);});
   fullA(wb,ff,'Factures');
   // Bacallà (una fila per producte de cada factura)
-  const bb=[['Data','Proveïdor','Producte','Kg','Import','Cost €/kg','Preu venda €/kg','% Benefici']];
+  const bb=[['Data','Proveïdor','Producte','Kg','Import','IVA %','Import amb IVA','Cost €/kg','Preu venda €/kg','% Benefici','Total factura','Descompte factura']];
   Y().bacalla.forEach(r=>(r.productes||[]).forEach(p=>{const qty=num(p.qty),cost=qty?num(p.imp)/qty:'';
-    bb.push([compraData('bacalla',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'']);}));
+    bb.push([compraData('bacalla',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),n0(p.iva),r2(num(p.imp)*(1+num(p.iva)/100)),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'',r2(compraTotal(r)),r2(compraDescompte(r))]);}));
   fullA(wb,bb,'Bacallà');
   // Olives
   // Olives — matriu anual (tipus × mesos)
@@ -1992,9 +2055,9 @@ function exportaXLSX(){
     od.push([c.set,p?p.tipus:'',p?p.nom:'?',n0(c.quant),n0(c.imp),num(c.quant)?r2(num(c.imp)/num(c.quant)):'']);});
   fullA(wb,od,'Olives setmanal');
   // Conserva (una fila per producte de cada factura)
-  const kk=[['Data','Proveïdor','Producte','Unitats','Import','Cost €/unitat','Preu venda','% Benefici']];
+  const kk=[['Data','Proveïdor','Producte','Unitats','Import','IVA %','Import amb IVA','Cost €/unitat','Preu venda','% Benefici','Total factura','Descompte factura']];
   Y().conserva.forEach(r=>(r.productes||[]).forEach(p=>{const qty=num(p.qty),cost=qty?num(p.imp)/qty:'';
-    kk.push([compraData('conserva',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'']);}));
+    kk.push([compraData('conserva',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),n0(p.iva),r2(num(p.imp)*(1+num(p.iva)/100)),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'',r2(compraTotal(r)),r2(compraDescompte(r))]);}));
   fullA(wb,kk,'Conserva');
   XLSX.writeFile(wb,'Dietari_'+any+'.xlsx');
 }
@@ -2083,6 +2146,13 @@ function vConfig(){
     <p class="muted" style="margin-top:6px">En canviar el correu rebràs un missatge de confirmació a l'adreça nova. Fins que no hi cliquis, has de seguir entrant amb l'adreça d'ara.</p>
   </div>
   <div class="card">
+    <h3>IVA per defecte de les compres</h3>
+    <p class="muted">És el que posa el botó «Aplica IVA a tots» dins d'una factura de compra. Per defecte, 11,4% (10% d'IVA + 1,4% de recàrrec d'equivalència). No s'aplica sol enlloc: cada producte duu el % que hi posis.</p>
+    <label for="cf_iva">IVA per defecte (%)</label>
+    <input id="cf_iva" class="num" inputmode="decimal" value="${ivaDefecte()}">
+    <button class="primary" id="cf_ivaDesa">Desa l'IVA per defecte</button>
+  </div>
+  <div class="card">
     <h3>Noms de les pestanyes de Compres</h3>
     <p class="muted">Canvia com es diu cada pestanya. Només canvia el text que es veu; les dades no es toquen. Deixa-ho buit per tornar al nom original.</p>
     <div id="cf_tabs">${COMPRES_TABS.map(([k,def])=>`
@@ -2135,6 +2205,11 @@ function bindConfig(){
     if(error){alert('No s\'ha pogut canviar el correu: '+error.message);return;}
     $('#cf_email').value=''; $('#cf_passAra').value='';
     alert('Fet. Obre el correu '+em+' i confirma el canvi des del missatge que hi trobaràs.');
+  });
+  $('#cf_ivaDesa').addEventListener('click',()=>{
+    const v=numOrNull($('#cf_iva').value);
+    if(v==null||v<0){alert('Posa un percentatge vàlid (0 o més).');return;}
+    S.ivaDefecte=v; save(); alert('IVA per defecte desat: '+v+' %.');
   });
   $('#cf_tabsDesa').addEventListener('click',()=>{
     const noms={};
