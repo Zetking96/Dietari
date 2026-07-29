@@ -100,6 +100,7 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
 .chip.pagat,.chip.ingressat{background:#E4EFE8; color:var(--verd);}
 .chip.pendent,.chip.parcial{background:#F5EBD8; color:var(--pendent);}
 .chip.cancelat{background:#F3E2E2; color:var(--vermell);}
+.chip.dietari{background:#E7E9EF; color:#4A5268;}
 .item{display:flex; justify-content:space-between; gap:8px; padding:9px 2px; border-bottom:1px solid var(--linia); cursor:pointer;}
 .item:last-child{border-bottom:none;}
 .item .t{font-weight:600; font-size:.92rem;}
@@ -1476,17 +1477,39 @@ function vCompra(type){
   const cfg=COMPRA_CFG[type];
   const mix=!!cfg.unitatLliure;   // unitats diferents per producte: no es poden sumar entre elles
   const tabs=[['compres','Compres per dia'],['producte','Resum per producte'],['quatri','Subtotals']];
-  if(mix)tabs.push(['inventari','Del dia a dia']);
+  if(mix)tabs.push(['inventari','Totals per article']);
   const sub=tabs.some(t=>t[0]===ctx.sub)?ctx.sub:'compres';
   const invs=(Y()[type]||[]).slice().sort((a,b)=>(compraData(type,a)||'')<(compraData(type,b)||'')?1:-1);
   let h=`<div class="subtabs">${tabs.map(([k,t])=>`<button data-sub="${k}" class="${k===sub?'on':''}">${t}</button>`).join('')}</div>`;
   if(sub==='inventari')return h+vInventari();
   if(sub==='compres'){
-    if(!invs.length)h+=`<div class="card muted">Cap factura ${esc(deTitol(type))}. Afegeix-ne amb el botó +.</div>`;
-    else invs.forEach(r=>{
+    // A «Altres» hi conviuen dues coses: les factures i el que has anotat al dia a dia amb
+    // quantitat (Fp/FpL/Despeses). Van barrejades per data, però cada cosa queda marcada.
+    const perDia={};
+    if(mix)invLinies().forEach(l=>{(perDia[l.ds]=perDia[l.ds]||[]).push(l);});
+    const items=[];
+    invs.forEach(r=>items.push({t:'f',data:compraData(type,r)||'',r}));
+    Object.keys(perDia).forEach(ds=>items.push({t:'d',data:ds,ls:perDia[ds]}));
+    items.sort((a,b)=>(a.data||'')<(b.data||'')?1:-1);
+    if(!items.length)h+=`<div class="card muted">Cap factura ${esc(deTitol(type))}. Afegeix-ne amb el botó +${mix?', o posa quantitat i unitat a una línia de Fp/FpL/Despeses des d\'«Entrada del dia»':''}.</div>`;
+    else if(mix)h+='<p class="muted" style="margin:0 0 8px">Hi ha les factures i també el que has apuntat al dia a dia amb quantitat. Les entrades del dia a dia <b>no són factures</b>: no tenen proveïdor ni pagaments, i no compten als Subtotals.</p>';
+    items.forEach(it=>{
+      if(it.t==='d'){
+        const tot=it.ls.reduce((s,l)=>s+l.imp,0);
+        h+=`<div class="card tight">
+          <div class="item clickable" data-diaitem="${it.data}" style="padding:2px 0 6px">
+            <div><div class="t">Entrada del dia <span class="chip dietari">del dia a dia</span></div>
+              <div class="s">${dataCA(it.data)} · ${it.ls.length} article(s) · no és una factura</div></div>
+            <div class="imp num">${eur0(tot)}</div></div>
+          <div class="scrollx"><table><thead><tr><th>Article</th><th>Bloc</th><th class="n">Quantitat</th><th class="n">Import</th></tr></thead><tbody>`;
+        it.ls.forEach(l=>{h+=`<tr><td>${esc(l.c)}</td><td>${esc(l.bloc)}</td><td class="n">${l.quant.toLocaleString('ca-ES')} ${esc(l.unitat)}</td><td class="n">${eur0(l.imp)}</td></tr>`;});
+        h+='</tbody></table></div></div>';
+        return;
+      }
+      const r=it.r;
       h+=`<div class="card tight">
         <div class="item clickable" data-editinv="${type}|${r.id}" style="padding:2px 0 6px">
-          <div><div class="t">${r.prov?`<span style="${PLNK}" data-provresum="${esc(r.prov)}">${esc(r.prov)}</span>`:'(sense proveïdor)'}</div><div class="s">${(dd=>dd?dataCA(dd):'sense data')(compraData(type,r))}${(np=>np>1?' · '+np+' pagaments':'')(compraPags(type,r).length)} · ${(r.productes||[]).length} producte(s)</div></div>
+          <div><div class="t">${r.prov?`<span style="${PLNK}" data-provresum="${esc(r.prov)}">${esc(r.prov)}</span>`:'(sense proveïdor)'}${mix?' <span class="chip pagat">factura</span>':''}</div><div class="s">${(dd=>dd?dataCA(dd):'sense data')(compraData(type,r))}${(np=>np>1?' · '+np+' pagaments':'')(compraPags(type,r).length)} · ${(r.productes||[]).length} producte(s)</div></div>
           <div class="imp num">${eur0(compraTotal(r))}</div></div>
         <div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">IVA</th><th class="n">€/${cfg.unitLab}</th><th class="n">Venda</th><th class="n">% Ben.</th></tr></thead><tbody>`;
       (r.productes||[]).forEach(p=>{const qty=num(p.qty),imp=num(p.imp),cost=qty?imp/qty:0,ben=cost&&p.pv!=null?100*(num(p.pv)-cost)/cost:null;
@@ -1982,6 +2005,7 @@ function bindCompres(){
   const ogm=$('#olGridMode'); if(ogm)ogm.addEventListener('click',()=>{const nx={imp:'quant',quant:'pkg',pkg:'imp'};go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:ctx.olGrid,olGridMode:nx[ctx.olGridMode]||'quant'});});
   const ac=$('#addCat'); if(ac)ac.addEventListener('click',()=>formOlivaCat());
   document.querySelectorAll('[data-inv]').forEach(el=>el.addEventListener('click',()=>obreInvArticleResum(el.dataset.inv)));
+  document.querySelectorAll('[data-diaitem]').forEach(el=>el.addEventListener('click',()=>go('avui',{data:el.dataset.diaitem})));
 }
 
 /* ================= VISTA: TRESORERIA ================= */
