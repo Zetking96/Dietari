@@ -204,7 +204,7 @@ const MESOS=['gener','febrer','març','abril','maig','juny','juliol','agost','se
 const DIES=['Dl','Dt','Dc','Dj','Dv','Ds'];
 let S=null;
 
-function anyBuit(){return {dies:{},tanc:{},cc:[],factures:[],bacalla:[],olivesCat:[],olivesCompres:[],conserva:[],comTpvMes:{},caixaMes:{},factorConserva:1.114};}
+function anyBuit(){return {dies:{},tanc:{},cc:[],factures:[],bacalla:[],olivesCat:[],olivesCompres:[],conserva:[],altres:[],comTpvMes:{},caixaMes:{},factorConserva:1.114};}
 function estatBuit(){const y=String(new Date().getFullYear()); const s={activeYear:y,years:{}}; s.years[y]=anyBuit(); return s;}
 
 /* --- memòria cau local (per treballar sense connexió) --- */
@@ -551,7 +551,7 @@ function render(){
     b.classList.toggle('on',b.dataset.v===grup);
   });
   const fab=$('#fab');
-  fab.style.display=(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.tab!=='inventari'))?'block':'none';
+  fab.style.display=(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.sub!=='inventari'))?'block':'none';
   const V={avui:vAvui,dietari:vDietari,tancament:vTancament,cc:vCC,factures:vFactures,mes:vMes,compres:vCompres,tresoreria:vTresoreria,resumAnual:vResumAnual,copia:vCopia,config:vConfig};
   $('#view').innerHTML=V[vista]();
   bindVista();
@@ -564,6 +564,7 @@ $('#fab').addEventListener('click',()=>{
     if(ctx.tab==='bacalla')formBacalla();
     else if(ctx.tab==='olives')formSetmanaOlives(ctx.setOl);
     else if(ctx.tab==='conserva')formConserva();
+    else if(ctx.tab==='altres')formCompra('altres');
   }
 });
 
@@ -1029,6 +1030,9 @@ function migra(){
   // categoria pròpia dels pagaments de factures que es porten al banc (no és «Despeses cc»,
   // perquè aquestes factures ja compten al dietari pel seu bloc de Fp/FpL/Despeses)
   if(!ccCatByRole('pagfact')&&!ccCat('pagfact'))ccCats().push({id:'pagfact',nom:'Pagament de factures',role:'pagfact'});
+  // «Altres» va passar de ser només un llistat d'inventari a ser un tipus de compra amb factures
+  Object.values(S.years||{}).forEach(y=>{if(!Array.isArray(y.altres))y.altres=[];});
+  if(S.compresNoms&&S.compresNoms.inventari&&!S.compresNoms.altres){S.compresNoms.altres=S.compresNoms.inventari;delete S.compresNoms.inventari;}
   const byName={}; ccCats().forEach(c=>byName[c.nom.toLowerCase()]=c.id);
   Object.values(S.years||{}).forEach(y=>{(y.cc||[]).forEach(m=>{
     if(!m.catId){m.catId=byName[(m.categoria||'').toLowerCase()]||'altres';}
@@ -1226,10 +1230,12 @@ function vFactures(){
 function obreFacturaSrc(f){
   const src=f.srcType==='bacalla'?Y().bacalla.find(x=>x.id===f.srcId)
     :f.srcType==='conserva'?Y().conserva.find(x=>x.id===f.srcId)
+    :f.srcType==='altres'?(Y().altres||[]).find(x=>x.id===f.srcId)
     :f.srcType==='oliva'?Y().olivesCompres.find(x=>x.id===f.srcId):null;
   if(!src){formFactura(f);return;}
   if(f.srcType==='bacalla')formBacalla(src);
   else if(f.srcType==='conserva')formConserva(src);
+  else if(f.srcType==='altres')formCompra('altres',src);
   else formOlivaCompra(src);
 }
 function bindFactures(){
@@ -1304,10 +1310,12 @@ function formFactura(f){
       <div class="lbhead"><span class="lbtitle">Converteix en compra</span></div>
       <p class="muted" style="margin:0 0 6px">Passa aquesta factura a Compres perquè els quilos comptin als subtotals. Manté el número, els pagaments i el PDF. Desa primer si has canviat res.</p>
       <div class="row3">
-        <select id="x_cvtipus"><option value="bacalla">Bacallà</option><option value="conserva">Conserva</option></select>
+        <select id="x_cvtipus"><option value="bacalla">Bacallà</option><option value="conserva">Conserva</option><option value="altres">Altres</option></select>
         <input id="x_cvprod" placeholder="Producte (Filet…)">
         <input id="x_cvqty" class="num" inputmode="decimal" placeholder="Quantitat">
       </div>
+      <input id="x_cvunitat" list="dl_unitats_compra" placeholder="unitat (kg, caixes…)" style="display:none;margin-top:6px">
+      <datalist id="dl_unitats_compra">${dlOpts(unitatsCompra())}</datalist>
       <button class="small" id="x_cvt" type="button" style="margin-top:6px">Converteix en compra</button>
     </div>`}
     ${nou?'':'<button class="danger" id="x_del" style="width:100%;margin-top:8px">Elimina</button>'}
@@ -1335,21 +1343,28 @@ function formFactura(f){
     });
     /* Converteix una factura normal en compra de bacallà/conserva: crea el registre a Compres
        amb els quilos i hi lliga aquesta mateixa factura (no en duplica cap). */
+    const cvTipus=el.querySelector('#x_cvtipus');
+    if(cvTipus)cvTipus.addEventListener('change',()=>{
+      el.querySelector('#x_cvunitat').style.display=COMPRA_CFG[cvTipus.value].unitatLliure?'':'none';
+    });
     const cvt=el.querySelector('#x_cvt');
     if(cvt)cvt.addEventListener('click',()=>{
       const type=el.querySelector('#x_cvtipus').value, cfg=COMPRA_CFG[type];
       const prod=el.querySelector('#x_cvprod').value.trim();
       const qty=numOrNull(el.querySelector('#x_cvqty').value);
       const imp=numOrNull(el.querySelector('#x_imp').value);
+      const unitat=cfg.unitatLliure?el.querySelector('#x_cvunitat').value.trim():'';
       if(!prod){alert('Falta el nom del producte.');return;}
       if(qty==null||qty<=0){alert('Falta la quantitat ('+cfg.qtyLab.toLowerCase()+').');return;}
+      if(cfg.unitatLliure&&!unitat){alert('Falta la unitat (kg, caixes, unitats…).');return;}
       if(imp==null){alert('Falta l\'import total.');return;}
-      if(!confirm('Convertir la factura #'+(f.num??'—')+' en una compra de '+titolCompra(type)+':\n'+
-        prod+' · '+qty+' '+cfg.qtyLab.toLowerCase()+' · '+eur0(imp)+
+      if(!confirm('Convertir la factura #'+(f.num??'—')+' en una compra '+deTitol(type)+':\n'+
+        prod+' · '+qty+' '+(unitat||cfg.qtyLab.toLowerCase())+' · '+eur0(imp)+
         '\n\nLa factura es manté (mateix número i pagaments) i queda lligada a la compra.'))return;
       const r={id:uid(),prov:el.querySelector('#x_emp').value.trim(),data:f.dataPagISO||'',
         diaCat:['Despeses','FpL','Fp'].includes(f.categoria)?f.categoria:'FpL',
-        productes:[{producte:prod,qty:qty,imp:imp,pv:null,iva:null}]};
+        productes:[{producte:prod,qty:qty,imp:imp,pv:null,iva:null,unitat:unitat}]};
+      if(!Array.isArray(Y()[type]))Y()[type]=[];
       Y()[type].push(r);
       const fx=Y().factures.find(x=>x.id===f.id);
       if(fx){fx.auto=true;fx.srcType=type;fx.srcId=r.id;}
@@ -1387,7 +1402,7 @@ function vCompres(){
   if(tab==='bacalla')h+=vBacalla();
   else if(tab==='olives')h+=vOlives();
   else if(tab==='conserva')h+=vConserva();
-  else h+=vInventari();
+  else h+=vCompra('altres');
   return h;
 }
 function vInventari(){
@@ -1407,19 +1422,28 @@ function dlOpts(vals){return vals.map(v=>`<option value="${esc(v)}"></option>`).
 /* Total pendent de pagar d'un conjunt de factures (per defecte, totes les de l'any actiu) */
 function facturesPendentsTotal(fs){return (fs||Y().factures).reduce((s,f)=>s+Math.max(0,num(f.imp)-factPagat(f)),0);}
 function provList(){
-  const vals=[...distinctVals(Y().bacalla,'prov'),...distinctVals(Y().conserva,'prov'),...distinctVals(Y().factures,'empresa')];
+  const vals=[...distinctVals(Y().bacalla,'prov'),...distinctVals(Y().conserva,'prov'),...distinctVals(Y().altres,'prov'),...distinctVals(Y().factures,'empresa')];
   return [...new Set(vals)].sort((a,b)=>a.localeCompare(b,'ca'));
 }
 /* ===== Compres (bacallà i conserva): factura amb diversos productes ===== */
 const COMPRA_CFG={
   bacalla:{qtyLab:'Kg',unitLab:'kg',concepte:'Bacallà'},
-  conserva:{qtyLab:'Unitats',unitLab:'unitat',concepte:'Conserva'}
+  conserva:{qtyLab:'Unitats',unitLab:'unitat',concepte:'Conserva'},
+  // «Altres»: cada producte porta la seva unitat (kg, caixes, unitats…), no n'hi ha una de fixa
+  altres:{qtyLab:'Quantitat',unitLab:'unitat',concepte:'Altres',unitatLliure:true}
 };
+/* Unitats suggerides per als productes d'«Altres»: les tres de sempre + les que ja has fet servir */
+function unitatsCompra(){
+  const dins=distinctVals((Y().altres||[]).flatMap(r=>r.productes||[]),'unitat');
+  return [...new Set(['kg','caixes','unitats',...dins,...unitatsUsades()])];
+}
 /* Noms de les pestanyes de Compres: es poden reanomenar des de Configuració (desats a S.compresNoms) */
-const COMPRES_TABS=[['bacalla','Bacallà'],['olives','Olives'],['conserva','Conserva'],['inventari','Altres']];
+const COMPRES_TABS=[['bacalla','Bacallà'],['olives','Olives'],['conserva','Conserva'],['altres','Altres']];
 function tabNomDefecte(k){const t=COMPRES_TABS.find(x=>x[0]===k);return t?t[1]:k;}
 function tabNom(k){const n=(S.compresNoms||{})[k];return (n&&n.trim())?n.trim():tabNomDefecte(k);}
 function titolCompra(type){return tabNom(type).toLowerCase();}
+/* «de bacallà» però «d'altres»: apostrofa davant de vocal */
+function deTitol(type){const t=titolCompra(type);return /^[aeiouàèéíòóúï]/i.test(t)?"d'"+t:'de '+t;}
 /* Imports d'una compra:
    - base   = suma dels imports escrits a cada producte (SENSE IVA). És el que fan servir el
               €/kg, el resum per producte i els subtotals: així no es mou res de l'històric.
@@ -1445,16 +1469,20 @@ function compraData(type,r){
   if(ds.length)return ds[0];
   return (r&&r.data)||'';
 }
-function compraLines(type){return (Y()[type]||[]).flatMap(r=>(r.productes||[]).map(p=>({producte:(p.producte||'').trim(),qty:num(p.qty),imp:num(p.imp),pv:p.pv,prov:r.prov,data:compraData(type,r),invId:r.id})));}
+function compraLines(type){return (Y()[type]||[]).flatMap(r=>(r.productes||[]).map(p=>({producte:(p.producte||'').trim(),qty:num(p.qty),imp:num(p.imp),pv:p.pv,unitat:(p.unitat||'').trim(),prov:r.prov,data:compraData(type,r),invId:r.id})));}
 function prodNames(type){return [...new Set(compraLines(type).map(p=>p.producte).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
 const PLNK='color:var(--blau);cursor:pointer;text-decoration:underline';
 function vCompra(type){
   const cfg=COMPRA_CFG[type];
-  const sub=['compres','producte','quatri'].includes(ctx.sub)?ctx.sub:'compres';
+  const mix=!!cfg.unitatLliure;   // unitats diferents per producte: no es poden sumar entre elles
+  const tabs=[['compres','Compres per dia'],['producte','Resum per producte'],['quatri','Subtotals']];
+  if(mix)tabs.push(['inventari','Del dia a dia']);
+  const sub=tabs.some(t=>t[0]===ctx.sub)?ctx.sub:'compres';
   const invs=(Y()[type]||[]).slice().sort((a,b)=>(compraData(type,a)||'')<(compraData(type,b)||'')?1:-1);
-  let h=`<div class="subtabs">${[['compres','Compres per dia'],['producte','Resum per producte'],['quatri','Subtotals']].map(([k,t])=>`<button data-sub="${k}" class="${k===sub?'on':''}">${t}</button>`).join('')}</div>`;
+  let h=`<div class="subtabs">${tabs.map(([k,t])=>`<button data-sub="${k}" class="${k===sub?'on':''}">${t}</button>`).join('')}</div>`;
+  if(sub==='inventari')return h+vInventari();
   if(sub==='compres'){
-    if(!invs.length)h+=`<div class="card muted">Cap factura de ${esc(titolCompra(type))}. Afegeix-ne amb el botó +.</div>`;
+    if(!invs.length)h+=`<div class="card muted">Cap factura ${esc(deTitol(type))}. Afegeix-ne amb el botó +.</div>`;
     else invs.forEach(r=>{
       h+=`<div class="card tight">
         <div class="item clickable" data-editinv="${type}|${r.id}" style="padding:2px 0 6px">
@@ -1462,7 +1490,8 @@ function vCompra(type){
           <div class="imp num">${eur0(compraTotal(r))}</div></div>
         <div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">IVA</th><th class="n">€/${cfg.unitLab}</th><th class="n">Venda</th><th class="n">% Ben.</th></tr></thead><tbody>`;
       (r.productes||[]).forEach(p=>{const qty=num(p.qty),imp=num(p.imp),cost=qty?imp/qty:0,ben=cost&&p.pv!=null?100*(num(p.pv)-cost)/cost:null;
-        h+=`<tr><td><span style="${PLNK}" data-prodresum="${type}|${esc(p.producte||'')}">${esc(p.producte||'—')}</span></td><td class="n">${qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(imp)}</td><td class="n">${num(p.iva)?num(p.iva).toLocaleString('ca-ES')+' %':'—'}</td><td class="n">${cost?cost.toFixed(2):'—'}</td><td class="n">${p.pv!=null?num(p.pv).toFixed(2):'—'}</td><td class="n ${ben!=null?(ben>=0?'pos':'neg'):''}">${ben!=null?ben.toFixed(1)+'%':'—'}</td></tr>`;});
+        const qTxt=qty.toLocaleString('ca-ES')+(mix&&p.unitat?' '+esc(p.unitat):'');
+        h+=`<tr><td><span style="${PLNK}" data-prodresum="${type}|${esc(p.producte||'')}">${esc(p.producte||'—')}</span></td><td class="n">${qTxt}</td><td class="n">${eur0(imp)}</td><td class="n">${num(p.iva)?num(p.iva).toLocaleString('ca-ES')+' %':'—'}</td><td class="n">${cost?cost.toFixed(2):'—'}</td><td class="n">${p.pv!=null?num(p.pv).toFixed(2):'—'}</td><td class="n ${ben!=null?(ben>=0?'pos':'neg'):''}">${ben!=null?ben.toFixed(1)+'%':'—'}</td></tr>`;});
       const rIva=compraIva(r), rDesc=compraDescompte(r);
       if(rIva||rDesc){
         h+=`<tr class="muted"><td colspan="2">Base sense IVA</td><td class="n">${eur0(compraBase(r))}</td><td colspan="4"></td></tr>`;
@@ -1472,6 +1501,23 @@ function vCompra(type){
       }
       h+='</tbody></table></div></div>';
     });
+  } else if(sub==='producte'&&mix){
+    // cada parella (producte, unitat) és una fila: no es poden sumar kg amb caixes
+    const map={};
+    compraLines(type).forEach(p=>{if(!p.producte)return;
+      const k=p.producte.toLowerCase()+'|'+(p.unitat||'').toLowerCase();
+      if(!map[k])map[k]={nom:p.producte,unitat:p.unitat||'',q:0,imp:0};
+      map[k].q+=p.qty; map[k].imp+=p.imp;});
+    const arts=Object.values(map).sort((a,b)=>a.nom.localeCompare(b.nom,'ca')||a.unitat.localeCompare(b.unitat,'ca'));
+    if(!arts.length)h+='<div class="card muted">Encara no hi ha productes. Afegeix factures amb el botó +.</div>';
+    else{
+      h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Producte</th><th class="n">Quantitat</th><th class="n">Import</th><th class="n">€/unitat</th></tr></thead><tbody>';
+      let gim=0;
+      arts.forEach(a=>{gim+=a.imp;
+        h+=`<tr class="clickable" data-prodresum="${type}|${esc(a.nom)}"><td>${esc(a.nom)}</td><td class="n">${a.q.toLocaleString('ca-ES')} ${esc(a.unitat)}</td><td class="n">${eur0(a.imp)}</td><td class="n">${a.q?(a.imp/a.q).toFixed(2):'—'}</td></tr>`;});
+      h+=`<tr class="total"><td>Total</td><td></td><td class="n">${eur0(gim)}</td><td></td></tr>`;
+      h+='</tbody></table></div></div><div class="muted" style="font-size:.8rem">Cada producte se separa per unitat (kg, caixes, unitats…): no es poden sumar entre elles. Els imports són sense IVA.</div>';
+    }
   } else if(sub==='producte'){
     const names=prodNames(type);
     if(!names.length)h+='<div class="card muted">Encara no hi ha productes. Afegeix compres per veure el resum.</div>';
@@ -1485,20 +1531,23 @@ function vCompra(type){
     }
   } else {
     const pk=(im,q)=>q?(im/q).toFixed(2):'—';
+    // amb unitats barrejades («Altres») no es mostren quantitats ni €/unitat: sumar kg amb caixes no vol dir res
+    const thQ=mix?'':`<th class="n">${cfg.qtyLab}</th>`, thPk=mix?'':`<th class="n">€/${cfg.unitLab}</th>`;
+    const tdQ=q=>mix?'':`<td class="n">${q.toLocaleString('ca-ES')}</td>`, tdPk=(im,q)=>mix?'':`<td class="n">${pk(im,q)}</td>`;
     const tq={};let senseQq=0,senseQi=0;
     invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraBase(r);}else{senseQq+=compraQty(r);senseQi+=compraBase(r);}});
-    h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
-    let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td><td class="n">${pk(tq[qn].imp,tq[qn].q)}</td></tr>`;}});
-    if(senseQq||senseQi){tq0+=senseQq;ti0+=senseQi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td><td class="n">${senseQq.toLocaleString('ca-ES')}</td><td class="n">${eur0(senseQi)}</td><td class="n">${pk(senseQi,senseQq)}</td></tr>`;}
-    h+=`<tr class="total"><td>Any</td><td class="n">${tq0.toLocaleString('ca-ES')}</td><td class="n">${eur0(ti0)}</td><td class="n">${pk(ti0,tq0)}</td></tr></tbody></table></div>`;
+    h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th>${thQ}<th class="n">Import</th>${thPk}</tr></thead><tbody>`;
+    let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td>${tdQ(tq[qn].q)}<td class="n">${eur0(tq[qn].imp)}</td>${tdPk(tq[qn].imp,tq[qn].q)}</tr>`;}});
+    if(senseQq||senseQi){tq0+=senseQq;ti0+=senseQi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td>${tdQ(senseQq)}<td class="n">${eur0(senseQi)}</td>${tdPk(senseQi,senseQq)}</tr>`;}
+    h+=`<tr class="total"><td>Any</td>${tdQ(tq0)}<td class="n">${eur0(ti0)}</td>${tdPk(ti0,tq0)}</tr></tbody></table></div>`;
     const tm=Array.from({length:12},()=>({q:0,imp:0}));
     let senseMq=0,senseMi=0;
     invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraBase(r);}}else{senseMq+=compraQty(r);senseMi+=compraBase(r);}});
-    h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
+    h+=`<div class="card"><h3>Resum anual ${S.activeYear}</h3><div class="scrollx"><table><thead><tr><th>Mes</th>${thQ}<th class="n">Import</th>${thPk}</tr></thead><tbody>`;
     let am=0,ai=0;
-    for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${tm[m].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tm[m].imp)}</td><td class="n">${pk(tm[m].imp,tm[m].q)}</td></tr>`;}}
-    if(senseMq||senseMi){am+=senseMq;ai+=senseMi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td><td class="n">${senseMq.toLocaleString('ca-ES')}</td><td class="n">${eur0(senseMi)}</td><td class="n">${pk(senseMi,senseMq)}</td></tr>`;}
-    h+=`<tr class="total"><td>Any</td><td class="n">${am.toLocaleString('ca-ES')}</td><td class="n">${eur0(ai)}</td><td class="n">${pk(ai,am)}</td></tr></tbody></table></div></div>`;
+    for(let m=0;m<12;m++){if(tm[m].q||tm[m].imp){am+=tm[m].q;ai+=tm[m].imp;h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td>${tdQ(tm[m].q)}<td class="n">${eur0(tm[m].imp)}</td>${tdPk(tm[m].imp,tm[m].q)}</tr>`;}}
+    if(senseMq||senseMi){am+=senseMq;ai+=senseMi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td>${tdQ(senseMq)}<td class="n">${eur0(senseMi)}</td>${tdPk(senseMi,senseMq)}</tr>`;}
+    h+=`<tr class="total"><td>Any</td>${tdQ(am)}<td class="n">${eur0(ai)}</td>${tdPk(ai,am)}</tr></tbody></table></div></div>`;
     // Pont entre la base (les taules de dalt) i el que realment surt del banc
     const totIva=r2(invs.reduce((s,r)=>s+compraIva(r),0)), totDesc=r2(invs.reduce((s,r)=>s+compraDescompte(r),0)),
           totPagat=r2(invs.reduce((s,r)=>s+compraTotal(r),0));
@@ -1516,8 +1565,17 @@ function vCompra(type){
 function vBacalla(){return vCompra('bacalla');}
 function vConserva(){return vCompra('conserva');}
 function prodResumHTML(type,nm){
-  const cfg=COMPRA_CFG[type];
+  let cfg=COMPRA_CFG[type];
   const ls=compraLines(type).filter(p=>p.producte.toLowerCase()===nm.toLowerCase()).sort((a,b)=>(a.data||'')<(b.data||'')?1:-1);
+  // a «Altres» la unitat surt de les pròpies línies (kg, caixes…), no n'hi ha una de fixa
+  const uProd=cfg.unitatLliure?[...new Set(ls.map(p=>p.unitat).filter(Boolean))]:[];
+  if(cfg.unitatLliure&&uProd.length>1){
+    let h='<div class="warn">Aquest producte s\'ha comprat amb unitats diferents ('+uProd.map(esc).join(', ')+'), per això les quantitats no se sumen entre elles.</div>';
+    h+='<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Proveïdor</th><th class="n">Quantitat</th><th class="n">Import</th><th class="n">€/unitat</th></tr></thead><tbody>';
+    ls.forEach(p=>{const c=p.qty?p.imp/p.qty:0;h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${p.prov?`<span style="${PLNK}" data-provresum="${esc(p.prov)}">${esc(p.prov)}</span>`:''}</td><td class="n">${p.qty.toLocaleString('ca-ES')} ${esc(p.unitat)}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
+    return h+'</tbody></table></div>';
+  }
+  if(cfg.unitatLliure)cfg=Object.assign({},cfg,{qtyLab:'Quantitat',unitLab:uProd[0]||'unitat'});
   const q=ls.reduce((s,p)=>s+p.qty,0), im=ls.reduce((s,p)=>s+p.imp,0), cost=q?im/q:0;
   const ambPv=ls.filter(p=>p.pv!=null); const ultimPv=ambPv.length?num(ambPv[0].pv):null;
   const benUlt=ultimPv!=null&&cost?100*(ultimPv-cost)/cost:null;
@@ -1621,28 +1679,40 @@ function formCompra(type,r){
   const cfg=COMPRA_CFG[type]; const nou=!r;
   r=r||{prov:'',data:'',diaCat:'FpL',productes:[]};
   const fLig=r.id?Y().factures.find(x=>x.auto&&x.srcType===type&&x.srcId===r.id):null;
-  const prods=(r.productes&&r.productes.length)?r.productes.map(p=>({...p})):[{producte:'',qty:'',imp:'',pv:'',iva:''}];
+  const mix=!!cfg.unitatLliure;   // «Altres»: cada producte duu la seva unitat
+  const buit={producte:'',qty:'',imp:'',pv:'',iva:'',unitat:''};
+  const prods=(r.productes&&r.productes.length)?r.productes.map(p=>({...p})):[{...buit}];
   const dlId='dl_prod_'+type;
   const prowHTML=p=>`<div class="prow" style="border:1px solid var(--linia);border-radius:8px;padding:8px;margin-bottom:8px">
     <input class="p-nom" list="${dlId}" placeholder="Producte" value="${esc(p.producte||'')}">
     <div class="row2" style="margin-top:6px">
-      <input class="num p-qty" inputmode="decimal" placeholder="${cfg.qtyLab}" value="${p.qty??''}">
+      <input class="num p-qty" inputmode="decimal" placeholder="${mix?'Quantitat':cfg.qtyLab}" value="${p.qty??''}">
+      ${mix?`<input class="p-unitat" list="dl_unitats_compra" placeholder="unitat (kg, caixes…)" value="${esc(p.unitat||'')}">`
+           :`<input class="num p-imp" inputmode="decimal" placeholder="Import sense IVA" value="${p.imp??''}">`}
+    </div>
+    ${mix?`<div class="row2" style="margin-top:6px">
       <input class="num p-imp" inputmode="decimal" placeholder="Import sense IVA" value="${p.imp??''}">
+      <input class="num p-iva" inputmode="decimal" placeholder="IVA %" value="${p.iva??''}">
     </div>
     <div class="row2" style="margin-top:6px">
+      <input class="num p-pv" inputmode="decimal" placeholder="P. venda" value="${p.pv??''}">
+      <span></span>
+    </div>`
+    :`<div class="row2" style="margin-top:6px">
       <input class="num p-iva" inputmode="decimal" placeholder="IVA %" value="${p.iva??''}">
       <input class="num p-pv" inputmode="decimal" placeholder="P. venda" value="${p.pv??''}">
-    </div>
+    </div>`}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
       <span class="muted p-calc" style="font-size:.8rem"></span>
       <button class="small p-del" type="button">✕ treu</button>
     </div></div>`;
-  modal(mTitle(nou?'Nova factura de '+titolCompra(type):'Edita factura')+`
+  modal(mTitle(nou?'Nova factura '+deTitol(type):'Edita factura')+`
     <label>Núm. intern</label><input id="cp_num" class="num" inputmode="numeric" value="${fLig&&fLig.num!=null?fLig.num:nextFacturaNum()}">
     <label>Proveïdor</label><input id="cp_prov" list="dl_provs" value="${esc(r.prov||'')}">
     <datalist id="dl_provs">${dlOpts(provList())}</datalist>
     <label>Categoria al dietari</label>${diaCatSelect('cp_cat',r.diaCat)}
     <datalist id="${dlId}">${dlOpts(prodNames(type))}</datalist>
+    ${mix?`<datalist id="dl_unitats_compra">${dlOpts(unitatsCompra())}</datalist>`:''}
     <h3>Productes</h3>
     <div id="cp_prods">${prods.map(prowHTML).join('')}</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -1662,7 +1732,10 @@ function formCompra(type,r){
     ${nou?'':'<button class="danger" id="cp_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     const cont=el.querySelector('#cp_prods');
-    const readProds=()=>[...cont.querySelectorAll('.prow')].map(row=>({producte:row.querySelector('.p-nom').value.trim(),qty:numOrNull(row.querySelector('.p-qty').value),imp:numOrNull(row.querySelector('.p-imp').value),pv:numOrNull(row.querySelector('.p-pv').value),iva:numOrNull(row.querySelector('.p-iva').value)}));
+    const readProds=()=>[...cont.querySelectorAll('.prow')].map(row=>{const u=row.querySelector('.p-unitat');
+      return {producte:row.querySelector('.p-nom').value.trim(),qty:numOrNull(row.querySelector('.p-qty').value),
+        imp:numOrNull(row.querySelector('.p-imp').value),pv:numOrNull(row.querySelector('.p-pv').value),
+        iva:numOrNull(row.querySelector('.p-iva').value),unitat:u?u.value.trim():''};});
     const totalManual=()=>numOrNull(el.querySelector('#cp_total').value);
     const compraForm=()=>({productes:readProds(),total:totalManual()});
     const recalc=()=>{
@@ -1670,7 +1743,9 @@ function formCompra(type,r){
         const qty=num(row.querySelector('.p-qty').value),imp=num(row.querySelector('.p-imp').value),
               pv=num(row.querySelector('.p-pv').value),ivp=num(row.querySelector('.p-iva').value);
         const cost=qty?imp/qty:0,ben=cost&&pv?100*(pv-cost)/cost:null;
-        const txtCost=cost?('Cost '+cost.toFixed(2)+'/'+cfg.unitLab+(ben!=null?' · Benef. '+ben.toFixed(1)+'%':'')):'';
+        const u=row.querySelector('.p-unitat');
+        const uLab=(u&&u.value.trim())||cfg.unitLab;
+        const txtCost=cost?('Cost '+cost.toFixed(2)+'/'+uLab+(ben!=null?' · Benef. '+ben.toFixed(1)+'%':'')):'';
         const txtIva=ivp?((txtCost?' · ':'')+'IVA '+eur0(r2(imp*ivp/100))):'';
         row.querySelector('.p-calc').textContent=txtCost+txtIva;
       });
@@ -1685,15 +1760,15 @@ function formCompra(type,r){
     };
     const rerender=arr=>{cont.innerHTML=arr.map(prowHTML).join('');recalc();};
     cont.addEventListener('input',recalc);
-    cont.addEventListener('click',e=>{const d=e.target.closest('.p-del');if(!d)return;const arr=readProds();const i=[...cont.querySelectorAll('.prow')].indexOf(d.closest('.prow'));arr.splice(i,1);if(!arr.length)arr.push({producte:'',qty:'',imp:'',pv:'',iva:''});rerender(arr);});
-    el.querySelector('#cp_add').addEventListener('click',()=>{const arr=readProds();arr.push({producte:'',qty:'',imp:'',pv:'',iva:''});rerender(arr);});
+    cont.addEventListener('click',e=>{const d=e.target.closest('.p-del');if(!d)return;const arr=readProds();const i=[...cont.querySelectorAll('.prow')].indexOf(d.closest('.prow'));arr.splice(i,1);if(!arr.length)arr.push({...buit});rerender(arr);});
+    el.querySelector('#cp_add').addEventListener('click',()=>{const arr=readProds();arr.push({...buit});rerender(arr);});
     el.querySelector('#cp_ivaAll').addEventListener('click',()=>{const arr=readProds();arr.forEach(p=>{p.iva=ivaDefecte();});rerender(arr);});
     el.querySelector('#cp_total').addEventListener('input',recalc);
     recalc();
     const readPagaments=bindPaysSection(el,()=>compraTotal(compraForm()));
     const aplicaPdf=bindPdfFormat(el,fLig);
     el.querySelector('#cp_desa').addEventListener('click',async()=>{
-      const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null||p.iva!=null);
+      const productes=readProds().filter(p=>p.producte||p.qty!=null||p.imp!=null||p.pv!=null||p.iva!=null||p.unitat);
       const pagaments=readPagaments();
       if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
       const numFact=numOrNull(el.querySelector('#cp_num').value);
@@ -2059,6 +2134,11 @@ function exportaXLSX(){
   Y().conserva.forEach(r=>(r.productes||[]).forEach(p=>{const qty=num(p.qty),cost=qty?num(p.imp)/qty:'';
     kk.push([compraData('conserva',r)||'',r.prov||'',p.producte||'',n0(p.qty),n0(p.imp),n0(p.iva),r2(num(p.imp)*(1+num(p.iva)/100)),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'',r2(compraTotal(r)),r2(compraDescompte(r))]);}));
   fullA(wb,kk,'Conserva');
+  // Altres (una fila per producte de cada factura; cada producte duu la seva unitat)
+  const aa=[['Data','Proveïdor','Producte','Quantitat','Unitat','Import','IVA %','Import amb IVA','Cost €/unitat','Preu venda','% Benefici','Total factura','Descompte factura']];
+  (Y().altres||[]).forEach(r=>(r.productes||[]).forEach(p=>{const qty=num(p.qty),cost=qty?num(p.imp)/qty:'';
+    aa.push([compraData('altres',r)||'',r.prov||'',p.producte||'',n0(p.qty),p.unitat||'',n0(p.imp),n0(p.iva),r2(num(p.imp)*(1+num(p.iva)/100)),cost===''?'':r2(cost),n0(p.pv),cost&&p.pv!=null?r2(100*(num(p.pv)-cost)/cost):'',r2(compraTotal(r)),r2(compraDescompte(r))]);}));
+  fullA(wb,aa,'Altres');
   XLSX.writeFile(wb,'Dietari_'+any+'.xlsx');
 }
 function r2(n){return Math.round((n||0)*100)/100;}
