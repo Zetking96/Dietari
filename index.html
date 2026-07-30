@@ -1147,6 +1147,9 @@ function obreBreakdownCaixaTotal(mes){
 }
 function clauMes(mes){return S.activeYear+'-'+String(mes+1).padStart(2,'0');}
 function bindDietari(){
+  // fins a quin mes arriba «el que portem d'any» (resum anual)
+  const cmpFins=$('#cmp_fins');
+  if(cmpFins)cmpFins.addEventListener('change',()=>{ctx.compFins=parseInt(cmpFins.value);render();});
   document.querySelectorAll('[data-nav]').forEach(b=>b.addEventListener('click',()=>{
     let m=ctx.mes+parseInt(b.dataset.nav); if(m<0)m=11; if(m>11)m=0; go(vista,{...ctx,mes:m});
   }));
@@ -2329,23 +2332,24 @@ function taulaCompHTML(a,b,anyAct,anyAnt){
 }
 function comparativaAnualHTML(){
   const anyAct=S.activeYear, anyAnt=String(parseInt(anyAct)-1);
-  const mFins=ultimMesAmbDades(anyAct);
+  const ultim=ultimMesAmbDades(anyAct);
+  // fins a quin mes es compara: el tries tu; per defecte, l'últim amb moviment
+  let mFins=(ctx.compFins!=null&&ctx.compFins>=0&&ctx.compFins<12)?ctx.compFins:ultim;
   let h='';
-  if(anyExisteix(anyAnt)&&mFins>=0){
-    // --- El que portem d'any: mateixos mesos a banda i banda ---
+  if(anyExisteix(anyAnt)&&ultim>=0){
+    // --- 1. El que portem d'any: mateixos mesos a banda i banda ---
     const a=acumulaRang(anyAct,0,mFins), b=acumulaRang(anyAnt,0,mFins);
     const ara=new Date(), enCurs=(String(ara.getFullYear())===anyAct&&ara.getMonth()===mFins);
-    h+=`<div class="card"><h3>El que portem d'any · gener–${MESOS[mFins]}</h3>`+
-      `<div class="muted" style="margin-bottom:8px">${anyAct} contra els mateixos mesos de ${anyAnt}.</div>`+
+    const opcions=MESOS.map((nom,i)=>`<option value="${i}" ${i===mFins?'selected':''}>gener–${nom}${i>ultim?' (sense dades)':''}</option>`).join('');
+    h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">`+
+      `<h3 style="margin:0">El que portem d'any</h3>`+
+      `<select id="cmp_fins" style="width:auto;min-width:170px">${opcions}</select></div>`+
+      `<div class="muted" style="margin:8px 0">${anyAct} contra els mateixos mesos de ${anyAnt}.</div>`+
       taulaCompHTML(a,b,anyAct,anyAnt);
     if(enCurs)h+=`<p class="muted" style="margin:8px 2px 0">Compte: el ${MESOS[mFins]} de ${anyAct} encara no ha acabat, i a l'altra banda hi ha el mes sencer de ${anyAnt}. Fins que no s'acabi, el % surt més baix del que li tocaria.</p>`;
+    else if(mFins>ultim)h+=`<p class="muted" style="margin:8px 2px 0">De ${anyAct} només hi ha dades fins al ${MESOS[ultim]}: els mesos de després hi sumen zero i fan baixar el %.</p>`;
     h+='</div>';
-    // --- Any complet ---
-    const a12=acumulaRang(anyAct,0,11), b12=acumulaRang(anyAnt,0,11);
-    h+='<div class="card"><h3>Any complet</h3>'+taulaCompHTML(a12,b12,anyAct,anyAnt);
-    if(mFins<11)h+=`<p class="muted" style="margin:8px 2px 0">De ${anyAct} només hi ha dades fins al ${MESOS[mFins]}: aquí es compara un any a mitges contra un de sencer. La comparació justa és la de dalt.</p>`;
-    h+='</div>';
-    // --- Quatrimestres ---
+    // --- 2. Quatrimestres ---
     let files='';
     [0,1,2].forEach(qi=>{
       const qa=acumulaRang(anyAct,qi*4,qi*4+3), qb=acumulaRang(anyAnt,qi*4,qi*4+3);
@@ -2359,6 +2363,11 @@ function comparativaAnualHTML(){
         `<th class="n">Coef. ${anyAct}</th><th class="n">Coef. ${anyAnt}</th></tr></thead><tbody>${files}`+
         '</tbody></table></div><p class="muted" style="margin:8px 2px 0">Els quatrimestres que encara no han començat no hi surten.</p></div>';
     }
+    // --- 3. Any complet ---
+    const a12=acumulaRang(anyAct,0,11), b12=acumulaRang(anyAnt,0,11);
+    h+='<div class="card"><h3>Any complet</h3>'+taulaCompHTML(a12,b12,anyAct,anyAnt);
+    if(ultim<11)h+=`<p class="muted" style="margin:8px 2px 0">De ${anyAct} només hi ha dades fins al ${MESOS[ultim]}: aquí es compara un any a mitges contra un de sencer. La comparació justa és la de dalt.</p>`;
+    h+='</div>';
   }
   // --- Tendència de tots els anys ---
   const anys=Object.keys(S.years||{}).sort();
