@@ -546,39 +546,87 @@ function histTotalsMes(mes,any){
   const rec=histMes(mes,'rec',any), tpv=histMes(mes,'tpv',any);
   return {ef:r2(rec-tpv),tpv:tpv,rec:rec,desp:histMes(mes,'desp',any),fp:histMes(mes,'fp',any),fpl:histMes(mes,'fpl',any)};
 }
-/* Recaptació d'un mes de QUALSEVOL any (històric o normal), per poder comparar-los.
+/* Valor d'un camp d'un mes de QUALSEVOL any (històric o normal), per poder comparar-los.
    Als anys normals cal calcular amb les dades d'aquell any, així que es commuta un instant. */
-function recMesAny(any,mes){
-  if(HISTORIC[any])return num(HISTORIC[any].rec[mes]);
+function valMesAny(any,mes,camp){
+  const hist=HISTORIC[any];
+  if(hist)return camp==='dcc'?histMes(mes,'dcc',any):histTotalsMes(mes,any)[camp];
   if(!S.years||!S.years[any])return null;
   const prev=S.activeYear;
-  try{ S.activeYear=any; return totalsMes(mes).rec; }
+  try{ S.activeYear=any; return camp==='dcc'?despCCMes(mes):totalsMes(mes)[camp]; }
   finally{ S.activeYear=prev; }
 }
-/* Comparació de la recaptació d'un mes amb el mateix mes de l'any anterior */
-function compRecMes(mes){
+/* Als costos, pujar és dolent: el color va a l'inrevés que a la recaptació */
+const CAMP_COST={desp:true,dcc:true,fp:true,fpl:true};
+/* Comparació d'un camp d'un mes amb el mateix mes de l'any anterior */
+function compMes(mes,camp){
   const anyAnt=String(parseInt(S.activeYear)-1);
-  const ant=recMesAny(anyAnt,mes);
+  const ant=valMesAny(anyAnt,mes,camp);
   if(ant==null||!ant)return null;
-  const act=totalsMes(mes).rec;
-  if(!act)return null;
-  return {anyAnt:anyAnt,ant:ant,act:act,dif:r2(act-ant),pct:100*(act-ant)/ant};
+  const act=valMesAny(S.activeYear,mes,camp);
+  if(act==null||!act)return null;
+  return {anyAnt:anyAnt,ant:ant,act:act,dif:r2(act-ant),pct:100*(act-ant)/ant,camp:camp};
 }
-function comprecHTML(mes){
-  const c=compRecMes(mes); if(!c)return '';
-  const puja=c.dif>=0;
-  return `<div class="comprec ${puja?'pos':'neg'}" data-comprec="${mes}" title="Compara amb ${MESOS[mes]} de ${c.anyAnt}">${puja?'▲':'▼'} ${Math.abs(c.pct).toFixed(1)} %</div>`;
+function compMesHTML(mes,camp){
+  const c=compMes(mes,camp); if(!c)return '';
+  const puja=c.dif>=0, bo=CAMP_COST[camp]?!puja:puja;
+  return `<div class="comprec ${bo?'pos':'neg'}" data-compmes="${mes}|${camp}" title="Compara amb ${MESOS[mes]} de ${c.anyAnt}">${puja?'▲':'▼'} ${Math.abs(c.pct).toFixed(1)} %</div>`;
 }
-function obreCompRec(mes){
-  const c=compRecMes(mes); if(!c)return;
-  const puja=c.dif>=0;
+function obreCompMes(mes,camp){
+  const c=compMes(mes,camp); if(!c)return;
+  const puja=c.dif>=0, bo=CAMP_COST[camp]?!puja:puja, nom=CAMP_NOM[camp]||camp;
   let h='<div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">Import</th></tr></thead><tbody>';
-  h+=`<tr><td>Recaptació de ${MESOS[mes]} ${S.activeYear}</td><td class="n">${eur0(c.act)}</td></tr>`;
-  h+=`<tr><td>Recaptació de ${MESOS[mes]} ${c.anyAnt}</td><td class="n">${eur0(c.ant)}</td></tr>`;
-  h+=`<tr class="total"><td>${puja?'Augment':'Disminució'}</td><td class="n ${puja?'pos':'neg'}"><b>${puja?'+':'−'}${eur0(Math.abs(c.dif))} (${puja?'+':'−'}${Math.abs(c.pct).toFixed(1)} %)</b></td></tr>`;
+  h+=`<tr><td>${nom} de ${MESOS[mes]} ${S.activeYear}</td><td class="n">${eur0(c.act)}</td></tr>`;
+  h+=`<tr><td>${nom} de ${MESOS[mes]} ${c.anyAnt}</td><td class="n">${eur0(c.ant)}</td></tr>`;
+  h+=`<tr class="total"><td>${puja?'Augment':'Disminució'}</td><td class="n ${bo?'pos':'neg'}"><b>${puja?'+':'−'}${eur0(Math.abs(c.dif))} (${puja?'+':'−'}${Math.abs(c.pct).toFixed(1)} %)</b></td></tr>`;
   h+='</tbody></table></div>';
-  h+=`<p class="muted">${puja?'Aquest mes has recaptat '+eur0(Math.abs(c.dif))+' més que fa un any.':'Aquest mes has recaptat '+eur0(Math.abs(c.dif))+' menys que fa un any.'}</p>`;
-  modal(mTitle('Recaptació · '+MESOS[mes]+' '+S.activeYear+' vs '+c.anyAnt)+h);
+  const q=eur0(Math.abs(c.dif));
+  h+='<p class="muted">'+(CAMP_COST[camp]
+    ? (puja?'Aquest mes has gastat '+q+' més que fa un any.':'Aquest mes has gastat '+q+' menys que fa un any.')
+    : (puja?'Aquest mes has recaptat '+q+' més que fa un any.':'Aquest mes has recaptat '+q+' menys que fa un any.'))+'</p>';
+  modal(mTitle(nom+' · '+MESOS[mes]+' '+S.activeYear+' vs '+c.anyAnt)+h);
+}
+/* ---- Acumulats d'un any sencer o d'un tros d'any, per comparar-los entre anys ----
+   «desp» ja porta les despeses de compte corrent i «fp» ja porta FpL: són les mateixes
+   agrupacions que fa servir la taula del resum anual, perquè les xifres quadrin. */
+function anyExisteix(any){return !!(HISTORIC[any]||(S.years&&S.years[any]));}
+function acumulaRang(any,mDes,mFins){
+  if(!anyExisteix(any))return null;
+  const o={ef:0,tpv:0,rec:0,desp:0,fp:0};
+  const prev=S.activeYear;
+  try{
+    S.activeYear=any;
+    for(let m=mDes;m<=mFins;m++){
+      const t=totalsMes(m), d=despCCMes(m);
+      o.ef+=t.ef; o.tpv+=t.tpv; o.rec+=t.rec; o.desp+=t.desp+d; o.fp+=t.fp+t.fpl;
+    }
+  }finally{ S.activeYear=prev; }
+  Object.keys(o).forEach(k=>o[k]=r2(o[k]));
+  return o;
+}
+/* Últim mes amb moviment d'un any (per saber fins on arriba «el que portem d'any»).
+   Es miren els moviments EN CRU: totalsMes resta la comissió TPV desada, i això faria que un
+   mes buit amb comissió apuntada (gen–jun del 2026) semblés que té dades. */
+function ultimMesAmbDades(any){
+  if(!anyExisteix(any))return -1;
+  let last=-1;
+  const prev=S.activeYear;
+  try{
+    S.activeYear=any;
+    for(let m=0;m<12;m++){
+      let hi;
+      if(esHistoric()){const t=histTotalsMes(m); hi=!!(t.rec||t.desp||t.fp||t.fpl||histMes(m,'dcc'));}
+      else{const t=totalsRang(isosDelMes(m)); hi=!!(t.ef||t.tpv||t.rec||t.desp||t.fp||t.fpl||despCCMes(m));}
+      if(hi)last=m;
+    }
+  }finally{ S.activeYear=prev; }
+  return last;
+}
+/* Cel·la de variació entre dos imports: fletxa + %, en verd/vermell segons si convé o no */
+function varCellHTML(act,ant,esCost){
+  if(ant==null||!ant)return '<td class="n muted">—</td>';
+  const dif=r2(act-ant), pct=100*dif/ant, puja=dif>=0, bo=esCost?!puja:puja;
+  return `<td class="n ${bo?'pos':'neg'}">${puja?'▲':'▼'} ${Math.abs(pct).toFixed(1)} %<div class="muted" style="font-size:.72rem;font-weight:400">${puja?'+':'−'}${eur0(Math.abs(dif))}</div></td>`;
 }
 function comissioMesStored(mes){const cm=Y().comTpvMes;return cm&&cm[mes]!=null?num(cm[mes]):null;}
 /* Comissió automàtica del banc del mes (ingressos TPV, brut−net) — compta des del 22-07 */
@@ -938,7 +986,7 @@ function bindMk(root){
   const el0=root||document;
   el0.querySelectorAll('[data-mk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));
   // el % de comparació té el seu propi detall, no el de la recaptació
-  el0.querySelectorAll('[data-comprec]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();obreCompRec(parseInt(el.dataset.comprec));}));
+  el0.querySelectorAll('[data-compmes]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.compmes.split('|');obreCompMes(parseInt(p[0]),p[1]);}));
 }
 function breakdownMesHTML(mes,camp){
   if(camp==='dcc'){ // Despeses c/c van per mes natural (com la casella), no per setmanes
@@ -1029,7 +1077,7 @@ function vDietari(){
   const tpvNet = comStored!=null ? t.tpv : r2(t.tpv-comAuto);
   const tpvBrut = comStored!=null ? r2(t.tpv+comMes) : t.tpv;
   h+='<div class="card"><h3>Total del mes <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d\'on surt)</span></h3>'+
-    kpiGridMes([['Recaptació',eur0(t.rec),'rec',comprecHTML(mes)],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dcc),'dcc'],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']],mes)+
+    kpiGridMes([['Recaptació',eur0(t.rec),'rec',compMesHTML(mes,'rec')],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp',compMesHTML(mes,'desp')],['Fp',eur0(t.fp),'fp',compMesHTML(mes,'fp')],['FpL',eur0(t.fpl),'fpl',compMesHTML(mes,'fpl')],['Despeses c/c',eur0(dcc),'dcc',compMesHTML(mes,'dcc')],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']],mes)+
     (comStored?'<p class="muted" style="margin:6px 2px 0">La recaptació és la suma de les setmanes ('+eur0(t.rec+comStored)+') menys la comissió TPV del mes ('+eur0(comStored)+').</p>':'')+'</div>';
   h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Comissió TPV del mes</h3><button class="small" data-editcom="'+mes+'">Edita</button></div>'+
     kpiGrid([['Comissió TPV',eur0(comMes)],['% comissió',tpvNet?(100*comMes/tpvNet).toFixed(1)+' %':'—'],['TPV net',eur0(tpvNet)],['TPV brut',eur0(tpvBrut)]])+
@@ -2249,6 +2297,7 @@ function vResumAnual(){
   h+='<tr class="total"><td>Any</td>'+KS.map(k=>`<td class="n">${eur0(any[k])}</td>`).join('')+coefCellHTML(any.rec,any.desp+any.fp,true)+'</tr>';
   h+='</tbody></table></div>'+
     '<p class="muted" style="margin:8px 2px 0">Coeficient = (Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100%</p></div>';
+  h+=comparativaAnualHTML();
   // % de recaptació per dia de la setmana (cal el detall diari: als anys històrics no hi és)
   if(esHistoric())return h;
   const rds=recPerDiaSetmana(), sums=rds.sums, tot=rds.tot, qDia=rds.q, qDiaTot=rds.qTot;
@@ -2261,6 +2310,75 @@ function vResumAnual(){
   h+='<tr class="total"><td>Total</td>'+[0,1,2].map(qi=>`<td class="n">${eur0(qDiaTot[qi])}</td>`).join('')+
     `<td class="n">${eur0(tot)}</td></tr></tbody></table></div>`+
     '<p class="muted" style="margin:8px 2px 0">El % de cada dia és sobre el total del seu període.</p></div>';
+  return h;
+}
+
+/* ================= COMPARACIÓ ENTRE ANYS (resum anual) ================= */
+const COMP_FILES=[['Recaptació','rec',false],['Despeses (+ c/c)','desp',true],['Fp + FpL','fp',true]];
+function coefCompCell(c){return c==null?'<td class="n muted">—</td>':`<td class="n ${c>=0?'pos':'neg'}">${c.toFixed(1)} %</td>`;}
+function taulaCompHTML(a,b,anyAct,anyAnt){
+  let h=`<div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">${anyAct}</th><th class="n">${anyAnt}</th><th class="n">Variació</th></tr></thead><tbody>`;
+  COMP_FILES.forEach(([nom,k,cost])=>{
+    h+=`<tr><td>${nom}</td><td class="n">${eur0(a[k])}</td><td class="n">${eur0(b[k])}</td>`+varCellHTML(a[k],b[k],cost)+'</tr>';
+  });
+  const cA=coefPct(a.rec,a.desp+a.fp), cB=coefPct(b.rec,b.desp+b.fp);
+  const dif=(cA!=null&&cB!=null)?cA-cB:null;
+  h+='<tr class="total"><td>Coeficient</td>'+coefCompCell(cA)+coefCompCell(cB)+
+    (dif!=null?`<td class="n ${dif>=0?'pos':'neg'}">${dif>=0?'+':'−'}${Math.abs(dif).toFixed(1)} punts</td>`:'<td class="n muted">—</td>')+'</tr>';
+  return h+'</tbody></table></div>';
+}
+function comparativaAnualHTML(){
+  const anyAct=S.activeYear, anyAnt=String(parseInt(anyAct)-1);
+  const mFins=ultimMesAmbDades(anyAct);
+  let h='';
+  if(anyExisteix(anyAnt)&&mFins>=0){
+    // --- El que portem d'any: mateixos mesos a banda i banda ---
+    const a=acumulaRang(anyAct,0,mFins), b=acumulaRang(anyAnt,0,mFins);
+    const ara=new Date(), enCurs=(String(ara.getFullYear())===anyAct&&ara.getMonth()===mFins);
+    h+=`<div class="card"><h3>El que portem d'any · gener–${MESOS[mFins]}</h3>`+
+      `<div class="muted" style="margin-bottom:8px">${anyAct} contra els mateixos mesos de ${anyAnt}.</div>`+
+      taulaCompHTML(a,b,anyAct,anyAnt);
+    if(enCurs)h+=`<p class="muted" style="margin:8px 2px 0">Compte: el ${MESOS[mFins]} de ${anyAct} encara no ha acabat, i a l'altra banda hi ha el mes sencer de ${anyAnt}. Fins que no s'acabi, el % surt més baix del que li tocaria.</p>`;
+    h+='</div>';
+    // --- Any complet ---
+    const a12=acumulaRang(anyAct,0,11), b12=acumulaRang(anyAnt,0,11);
+    h+='<div class="card"><h3>Any complet</h3>'+taulaCompHTML(a12,b12,anyAct,anyAnt);
+    if(mFins<11)h+=`<p class="muted" style="margin:8px 2px 0">De ${anyAct} només hi ha dades fins al ${MESOS[mFins]}: aquí es compara un any a mitges contra un de sencer. La comparació justa és la de dalt.</p>`;
+    h+='</div>';
+    // --- Quatrimestres ---
+    let files='';
+    [0,1,2].forEach(qi=>{
+      const qa=acumulaRang(anyAct,qi*4,qi*4+3), qb=acumulaRang(anyAnt,qi*4,qi*4+3);
+      if(!qa||!qb||(!qa.rec&&!qb.rec))return;
+      files+=`<tr><td>${QUATRIN[qi]}</td><td class="n">${eur0(qa.rec)}</td><td class="n">${eur0(qb.rec)}</td>`+
+        varCellHTML(qa.rec,qb.rec,false)+coefCompCell(coefPct(qa.rec,qa.desp+qa.fp))+coefCompCell(coefPct(qb.rec,qb.desp+qb.fp))+'</tr>';
+    });
+    if(files){
+      h+=`<div class="card"><h3>Quatrimestres · ${anyAct} contra ${anyAnt}</h3><div class="scrollx"><table><thead><tr><th>Període</th>`+
+        `<th class="n">Recapt. ${anyAct}</th><th class="n">Recapt. ${anyAnt}</th><th class="n">Variació</th>`+
+        `<th class="n">Coef. ${anyAct}</th><th class="n">Coef. ${anyAnt}</th></tr></thead><tbody>${files}`+
+        '</tbody></table></div><p class="muted" style="margin:8px 2px 0">Els quatrimestres que encara no han començat no hi surten.</p></div>';
+    }
+  }
+  // --- Tendència de tots els anys ---
+  const anys=Object.keys(S.years||{}).sort();
+  let tf='', prevRec=null, hiHaParcial=false;
+  anys.forEach(a=>{
+    const t=acumulaRang(a,0,11); if(!t||(!t.rec&&!t.desp&&!t.fp))return;
+    const ult=ultimMesAmbDades(a), parcial=ult<11;
+    if(parcial)hiHaParcial=true;
+    const c=coefPct(t.rec,t.desp+t.fp);
+    tf+=`<tr${a===anyAct?' class="total"':''}><td>${a}${parcial?` <span class="muted" style="font-weight:400">(fins ${MESOS[ult].slice(0,3)}.)</span>`:''}</td>`+
+      `<td class="n">${eur0(t.rec)}</td>`+(prevRec?varCellHTML(t.rec,prevRec,false):'<td class="n muted">—</td>')+
+      `<td class="n">${eur0(t.desp)}</td><td class="n">${eur0(t.fp)}</td>`+coefCompCell(c)+'</tr>';
+    prevRec=t.rec;
+  });
+  if(tf){
+    h+='<div class="card"><h3>Tendència de tots els anys</h3><div class="scrollx"><table><thead><tr><th>Any</th>'+
+      '<th class="n">Recaptació</th><th class="n">vs any ant.</th><th class="n">Despeses (+ c/c)</th><th class="n">Fp + FpL</th><th class="n">Coeficient</th></tr></thead><tbody>'+tf+
+      '</tbody></table></div><p class="muted" style="margin:8px 2px 0">Coeficient = (Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100%.'+
+      (hiHaParcial?' Els anys marcats «(fins …)» encara no han acabat, o sigui que la seva xifra no es pot comparar de tu a tu amb la dels anys sencers.':'')+'</p></div>';
+  }
   return h;
 }
 
