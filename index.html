@@ -206,7 +206,7 @@ const MESOS=['gener','febrer','març','abril','maig','juny','juliol','agost','se
 const DIES=['Dl','Dt','Dc','Dj','Dv','Ds'];
 let S=null;
 
-function anyBuit(){return {dies:{},tanc:{},cc:[],factures:[],bacalla:[],olivesCat:[],olivesCompres:[],conserva:[],altres:[],comTpvMes:{},caixaMes:{},factorConserva:1.114};}
+function anyBuit(){return {dies:{},tanc:{},cc:[],factures:[],bacalla:[],olivesCat:[],olivesCompres:[],conserva:[],altres:[],comTpvMes:{},caixaMes:{},caixaSet:{},factorConserva:1.114};}
 function estatBuit(){const y=String(new Date().getFullYear()); const s={activeYear:y,years:{}}; s.years[y]=anyBuit(); return s;}
 
 /* --- memòria cau local (per treballar sense connexió) --- */
@@ -581,15 +581,24 @@ function comissioMes(mes){return (comissioMesStored(mes)||0)+comissioAutoMes(mes
    El TPV net que es mostra = valor desat; el brut = net + comissió (informatiu). */
 function totalsMes(mes){if(esHistoric())return histTotalsMes(mes);const t=totalsRang(isosDelMes(mes));const s=comissioMesStored(mes);if(s!=null)t.rec=r2(t.rec-s);return t;}
 /* Caixa d'efectiu acumulada, a partir de juliol (mes índex 6): cada mes comença amb l'efectiu
-   acumulat del mes anterior, hi suma l'efectiu de les seves setmanes, i s'hi pot afegir un ajust
-   manual (+/-). L'efectiu bancari és un valor purament manual, sense fórmula. */
+   acumulat del mes anterior, hi suma l'efectiu REAL de les seves setmanes (el que ha entrat menys
+   el que se n'ha anat utilitzant), i s'hi pot afegir un ajust manual (+/-).
+   L'efectiu bancari és un valor purament manual, sense fórmula.
+   Important: les sortides d'efectiu NO toquen la recaptació ni les despeses. L'«Efectiu» del mes i
+   de l'any segueix sent el que ha entrat; això només porta els diners que hi ha físicament a la caixa. */
 const CAIXA_DES=6; // juliol
 function caixaAjustMes(mes){const c=Y().caixaMes&&Y().caixaMes[mes];return c&&c.ajust!=null?num(c.ajust):0;}
 function caixaBancariMes(mes){const c=Y().caixaMes&&Y().caixaMes[mes];return c&&c.bancari!=null?num(c.bancari):null;}
+/* Sortides d'efectiu d'una setmana, indexades pel dilluns: [{c:'concepte', imp:0}] */
+function caixaSetLines(monIso){const a=Y().caixaSet&&Y().caixaSet[monIso];return Array.isArray(a)?a:[];}
+function caixaSetSortides(monIso){return r2(caixaSetLines(monIso).reduce((s,l)=>s+num(l.imp),0));}
+function efectiuRealSet(w){return r2(totalsRang(w).ef-caixaSetSortides(w[0]));}
+function caixaSortidesMes(mes){return r2(setmanesDelMes(parseInt(S.activeYear),mes).reduce((s,w)=>s+caixaSetSortides(w[0]),0));}
+function efectiuRealMes(mes){return r2(totalsMes(mes).ef-caixaSortidesMes(mes));}
 function caixaEfectiuMes(mes){
   if(mes<CAIXA_DES)return 0;
   const prev=mes>CAIXA_DES?caixaEfectiuMes(mes-1):0;
-  return r2(prev+totalsMes(mes).ef+caixaAjustMes(mes));
+  return r2(prev+efectiuRealMes(mes)+caixaAjustMes(mes));
 }
 function ccDelMes(mes){const p=S.activeYear+'-'+String(mes+1).padStart(2,'0');return Y().cc.filter(m=>m.data&&m.data.startsWith(p));}
 function despCCMes(mes){if(esHistoric())return histMes(mes,'dcc');const c=ccCatByRole('despcc');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.debe),0);}
@@ -788,7 +797,7 @@ function bindAvui(){
     const t=totalsRang(setm), dccSet=setm.reduce((s,ds)=>s+despCCDia(ds).reduce((a,m)=>a+num(m.debe),0),0);
     const tpvNetSet=tpvNetRang(setm), comSet=comissioTpvRang(setm);
     $('#resumSetmanaAvui').innerHTML='<h3>Setmana ('+dataCA(setm[0])+' – '+dataCA(setm[setm.length-1])+')</h3>'+
-      kpiGridWk([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(t.ef),'ef'],['TPV net',eur0(tpvNetSet),'tpvnet'],['Comissió TPV',eur0(comSet),'comtpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dccSet),'dcc']],setm[0])+
+      kpiGridWk([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(efectiuRealSet(setm)),'ef'],['TPV net',eur0(tpvNetSet),'tpvnet'],['Comissió TPV',eur0(comSet),'comtpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dccSet),'dcc']],setm[0])+
       '<p class="muted" style="margin:6px 2px 0">Clica una xifra per veure d\'on surt. La comissió de la setmana és només informativa: als totals del mes es descompta un sol cop, com sempre.</p>';
     bindWk($('#resumSetmanaAvui'));
   } else $('#resumSetmanaAvui').remove();
@@ -796,7 +805,12 @@ function bindAvui(){
 function kpiGrid(pars){return '<div class="kpis">'+pars.map(([l,v])=>'<div class="kpi"><div class="l">'+l+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
 /* KpiGrid amb cel·les clicables: cada parell pot dur un 3r element 'camp' que obre el detall setmanal */
 function kpiGridWk(pars,monIso){return '<div class="kpis">'+pars.map(([l,v,camp])=>'<div class="kpi'+(camp?' clickable':'')+'"'+(camp?' data-wk="'+monIso+'|'+camp+'"':'')+'><div class="l">'+l+(camp?' <span class="muted">›</span>':'')+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
-function bindWk(root){(root||document).querySelectorAll('[data-wk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.wk.split('|');obreBreakdownSetmana(p[0],p[1]);}));}
+/* L'efectiu de la setmana obre la calculadora (detall dia a dia + el que s'ha utilitzat);
+   la resta de camps obren el detall de sempre. */
+function bindWk(root){(root||document).querySelectorAll('[data-wk]').forEach(el=>el.addEventListener('click',e=>{
+  e.stopPropagation();const p=el.dataset.wk.split('|');
+  if(p[1]==='ef')obreCaixaSetmana(p[0]); else obreBreakdownSetmana(p[0],p[1]);
+}));}
 /* ---- Detall d'on surt cada xifra del resum setmanal ---- */
 const CAMP_NOM={ef:'Efectiu',tpv:'TPV',tpvnet:'TPV net',comtpv:'Comissió TPV',rec:'Recaptació',desp:'Despeses',fp:'Fp',fpl:'FpL',dcc:'Despeses c/c'};
 function liniesCamp(ds,camp){
@@ -861,6 +875,47 @@ function breakdownSetmanaHTML(w,camp){
   else if(camp==='comtpv')h+='<p class="muted">Xifra informativa: la comissió de cada dia surt de comparar el TPV brut amb l\'ingrés del banc. Als totals del mes la comissió es descompta un sol cop, amb el sistema mensual de sempre.</p>';
   else if(showRec)h+='<p class="muted">Les línies «rec: no» (factures grosses/talons de la setmana) sumen al total de '+CAMP_NOM[camp]+' però no a la recaptació.</p>';
   return h;
+}
+/* ---- Calculadora d'efectiu de la setmana: el que ha entrat menys el que s'ha anat utilitzant ---- */
+function cxsRowHTML(l){return `<div class="lrow cxs-row" style="grid-template-columns:88px 1fr auto">
+  <input class="num cxs-imp" inputmode="decimal" placeholder="0,00" value="${l&&l.imp!=null&&l.imp!==''?l.imp:''}">
+  <input class="cxs-c" placeholder="en què (pagament, canvi…)" value="${esc((l&&l.c)||'')}">
+  <button class="small cxs-del" type="button" aria-label="Esborra la línia">✕</button>
+</div>`;}
+function obreCaixaSetmana(monIso){
+  const w=setmanaDe(monIso); if(!w)return;
+  const brut=totalsRang(w).ef;
+  const lines=caixaSetLines(monIso).map(l=>({...l}));
+  const cos=breakdownSetmanaHTML(w,'ef')+
+    `<h3 style="margin-top:14px">Efectiu que has utilitzat</h3>
+    <p class="muted" style="margin:0 0 8px">Apunta el que vas traient de la caixa durant la setmana. Es resta de l'efectiu de dalt i el que queda és el que suma a la caixa d'efectiu del mes. No toca la recaptació ni les despeses.</p>
+    <div id="cxs_cont">${(lines.length?lines:[{c:'',imp:''}]).map(cxsRowHTML).join('')}</div>
+    <button class="small" id="cxs_add" type="button">+ línia</button>
+    <div class="recline"><span class="l">Efectiu de la setmana</span><span class="v num">${eur0(brut)}</span></div>
+    <div class="recline"><span class="l">− Efectiu utilitzat</span><span class="v num" id="cxs_out">—</span></div>
+    <div class="recline"><span class="l"><b>Efectiu real</b></span><span class="v num" id="cxs_real">—</span></div>
+    <button class="primary" id="cxs_desa" style="margin-top:8px">Desa</button>`;
+  modal(mTitle('Efectiu · setmana '+dataCA(w[0])+' – '+dataCA(w[5]))+cos,el=>{
+    const cont=el.querySelector('#cxs_cont');
+    const read=()=>[...cont.querySelectorAll('.cxs-row')].map(r=>({c:r.querySelector('.cxs-c').value.trim(),imp:numOrNull(r.querySelector('.cxs-imp').value)}));
+    const recalc=()=>{const out=r2(read().reduce((s,l)=>s+num(l.imp),0));
+      el.querySelector('#cxs_out').textContent=eur0(out);
+      el.querySelector('#cxs_real').textContent=eur0(r2(brut-out));};
+    const rerender=arr=>{cont.innerHTML=(arr.length?arr:[{c:'',imp:''}]).map(cxsRowHTML).join('');recalc();};
+    cont.addEventListener('input',recalc);
+    cont.addEventListener('click',e=>{const d=e.target.closest('.cxs-del');if(!d)return;
+      const arr=read(); const i=[...cont.querySelectorAll('.cxs-row')].indexOf(d.closest('.cxs-row'));
+      arr.splice(i,1); rerender(arr);});
+    el.querySelector('#cxs_add').addEventListener('click',()=>{const arr=read();arr.push({c:'',imp:''});rerender(arr);});
+    recalc();
+    el.querySelector('#cxs_desa').addEventListener('click',()=>{
+      const arr=read().filter(l=>l.imp!=null||l.c).map(l=>({c:l.c,imp:l.imp==null?0:l.imp}));
+      if(!Y().caixaSet)Y().caixaSet={};
+      if(arr.length)Y().caixaSet[monIso]=arr; else delete Y().caixaSet[monIso];
+      save(); tancaModal(); render();
+    });
+    bindResumLinks(el);
+  });
 }
 function obreBreakdownSetmana(monIso,camp,backMes){const w=setmanaDe(monIso);
   const back=(backMes!=null&&!isNaN(backMes))?'<button class="small" id="bkMes" style="margin-bottom:10px">‹ Torna a '+MESOS[backMes]+'</button>':'';
@@ -948,7 +1003,8 @@ function vDietari(){
         <td class="n">${vFp?eur0(vFp)+(d&&lineRec(d.fpLines)?'*':''):''}</td><td class="n">${vFpl?eur0(vFpl)+(d&&lineRec(d.fplLines)?'*':''):''}</td>
         <td class="n"><b>${(d||factDia(ds).length)?eur0(recDia(d,ds)):''}</b></td></tr>`;
     });
-    h+=`<tr class="total"><td>Setm. ${i+1}</td><td class="n clickable" data-wk="${w[0]}|ef">${eur0(t.ef)}</td><td class="n clickable" data-wk="${w[0]}|tpv">${eur0(t.tpv)}</td><td class="n clickable" data-wk="${w[0]}|desp">${eur0(t.desp)}</td><td class="n clickable" data-wk="${w[0]}|fp">${eur0(t.fp)}</td><td class="n clickable" data-wk="${w[0]}|fpl">${eur0(t.fpl)}</td><td class="n clickable" data-wk="${w[0]}|rec"><b>${eur0(t.rec)}</b></td></tr>`;
+    const outSet=caixaSetSortides(w[0]);
+    h+=`<tr class="total"><td>Setm. ${i+1}</td><td class="n clickable" data-wk="${w[0]}|ef">${eur0(r2(t.ef-outSet))}${outSet?`<div class="muted" style="font-size:.7rem;font-weight:400">de ${eur0(t.ef)}</div>`:''}</td><td class="n clickable" data-wk="${w[0]}|tpv">${eur0(t.tpv)}</td><td class="n clickable" data-wk="${w[0]}|desp">${eur0(t.desp)}</td><td class="n clickable" data-wk="${w[0]}|fp">${eur0(t.fp)}</td><td class="n clickable" data-wk="${w[0]}|fpl">${eur0(t.fpl)}</td><td class="n clickable" data-wk="${w[0]}|rec"><b>${eur0(t.rec)}</b></td></tr>`;
     h+='</tbody></table></div>';
     const sat=w[5], tc=Y().tanc[sat]||null;
     h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:.88rem">
@@ -980,27 +1036,40 @@ function vDietari(){
         <div><label for="cx_banc">Efectiu bancari</label><input id="cx_banc" class="num" inputmode="decimal" value="${banc??''}"></div>
       </div>
       <button class="primary" id="cx_desa" data-mes="${mes}" style="margin-top:8px">Desa</button>
-      <p class="muted" style="margin:6px 2px 0">Efectiu acumulat = efectiu bancari + efectiu normal − factures pendents de pagar. L'efectiu normal comença amb l'acumulat del mes anterior i hi suma cada setmana (ajust manual a part); l'efectiu bancari és un valor a part, sense fórmula.</p>
+      <p class="muted" style="margin:6px 2px 0">Efectiu acumulat = efectiu bancari + efectiu normal − factures pendents de pagar. L'efectiu normal comença amb l'acumulat del mes anterior i hi suma l'efectiu real de cada setmana (el que ha entrat menys el que has utilitzat, que apuntes clicant l'efectiu de la setmana); l'efectiu bancari és un valor a part, sense fórmula.</p>
     </div>`;
   }
   return h;
 }
 /* ---- Detall de d'on surt l'efectiu acumulat del mes ---- */
 function breakdownCaixaHTML(mes){
-  const prev=mes>CAIXA_DES?caixaEfectiuMes(mes-1):0, setmSum=totalsMes(mes).ef, ajust=caixaAjustMes(mes);
-  const tot=r2(prev+setmSum+ajust);
+  const prev=mes>CAIXA_DES?caixaEfectiuMes(mes-1):0, setmSum=totalsMes(mes).ef,
+        out=caixaSortidesMes(mes), ajust=caixaAjustMes(mes);
+  const tot=r2(prev+setmSum-out+ajust);
   let h='<div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">Import</th></tr></thead><tbody>';
   if(mes>CAIXA_DES)h+=`<tr class="clickable" data-caixaprev="${mes-1}"><td>Efectiu acumulat de ${MESOS[mes-1]}</td><td class="n">${eur0(prev)}</td></tr>`;
   else h+=`<tr class="muted"><td>Efectiu acumulat del mes anterior</td><td class="n">${eur0(prev)} (primer mes)</td></tr>`;
-  h+=`<tr class="clickable" data-mk="${mes}|ef"><td>Efectiu de les setmanes de ${MESOS[mes]}</td><td class="n">${eur0(setmSum)}</td></tr>`;
+  h+=`<tr class="clickable" data-mk="${mes}|ef"><td>Efectiu que ha entrat les setmanes de ${MESOS[mes]}</td><td class="n">${eur0(setmSum)}</td></tr>`;
+  if(out)h+=`<tr><td>− Efectiu utilitzat</td><td class="n">${eur0(-out)}</td></tr>`;
   if(ajust)h+=`<tr><td>Ajust manual</td><td class="n">${eur0(ajust)}</td></tr>`;
   h+=`<tr class="total"><td>Efectiu acumulat</td><td class="n"><b>${eur0(tot)}</b></td></tr></tbody></table></div>`;
+  if(out){
+    h+='<h3 style="margin-top:12px">Efectiu utilitzat, setmana a setmana</h3><div class="scrollx"><table><thead><tr><th>Setmana</th><th>En què</th><th class="n">Import</th></tr></thead><tbody>';
+    setmanesDelMes(parseInt(S.activeYear),mes).forEach(w=>{
+      caixaSetLines(w[0]).forEach((l,i)=>{
+        h+=`<tr class="clickable" data-cxset="${w[0]}"><td>${i===0?dataCA(w[0])+' – '+dataCA(w[5]):''}</td><td>${esc(l.c||'—')}</td><td class="n">${eur0(num(l.imp))}</td></tr>`;
+      });
+    });
+    h+=`<tr class="total"><td colspan="2">Total utilitzat</td><td class="n">${eur0(out)}</td></tr></tbody></table></div>`;
+    h+='<p class="muted">Clica una línia per obrir la calculadora d\'aquella setmana.</p>';
+  }
   return h;
 }
 function obreBreakdownCaixa(mes){
   modal(mTitle('Efectiu normal · '+MESOS[mes]+' '+S.activeYear)+breakdownCaixaHTML(mes),el=>{
     el.querySelectorAll('[data-mk]').forEach(x=>x.addEventListener('click',()=>{const p=x.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));
     el.querySelectorAll('[data-caixaprev]').forEach(x=>x.addEventListener('click',()=>obreBreakdownCaixa(parseInt(x.dataset.caixaprev))));
+    el.querySelectorAll('[data-cxset]').forEach(x=>x.addEventListener('click',()=>obreCaixaSetmana(x.dataset.cxset)));
   });
 }
 /* ---- Detall del gran "Efectiu acumulat": bancari + normal − pendents ---- */
