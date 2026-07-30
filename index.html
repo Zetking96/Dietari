@@ -101,6 +101,7 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
 .chip.pendent,.chip.parcial{background:#F5EBD8; color:var(--pendent);}
 .chip.cancelat{background:#F3E2E2; color:var(--vermell);}
 .chip.dietari{background:#E7E9EF; color:#4A5268;}
+.comprec{font-size:.78rem; font-weight:700; margin-top:2px; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px;}
 .item{display:flex; justify-content:space-between; gap:8px; padding:9px 2px; border-bottom:1px solid var(--linia); cursor:pointer;}
 .item:last-child{border-bottom:none;}
 .item .t{font-weight:600; font-size:.92rem;}
@@ -515,6 +516,61 @@ function totalsRang(isos){
 function isosDelMes(mes){const any=parseInt(S.activeYear);return setmanesDelMes(any,mes).flat();}
 /* Comissió TPV del mes: si hi ha una xifra desada manualment (resum de l'Excel, gen–jun) es fa
    servir aquella; si no, es calcula del banc (brut − net dels ingressos TPV, útil d'agost endavant). */
+/* ===== ANYS HISTÒRICS (2020–2025) =====
+   Venen de l'Excel «Històric.xlsx» i NOMÉS tenen totals mensuals: no hi ha dades diàries.
+   Es guarden al codi (no a Supabase) perquè són anys tancats que ja no canviaran.
+   Nota: el 2020 no separava Fp de FpL ni tenia despeses de compte corrent; tot el gènere
+   consta a Fp, i per això la fila «Fp + FpL» del resum anual d'aquell any ja és el total. */
+const HISTORIC={
+ '2020':{rec:[28332.99,30314.59,30185.11,26953.44,30279.5,29244.82,33686.22,11651.33,25650.58,37236.33,32338.39,46304.95],tpv:[0,0,0,0,0,0,0,0,0,0,0,0],desp:[4430.64,3595.69,3278.59,3946.35,4053.54,3470.65,6268.16,2376.56,3661.47,6362.6,3758.86,6425.26],dcc:[0,0,0,0,0,0,0,0,0,0,0,0],fp:[26766.19,19572.17,11119.89,29876.93,15538.35,22381.11,22474.84,1236.94,8620.4,25860.74,15043.48,28659.7],fpl:[0,0,0,0,0,0,0,0,0,0,0,0]},
+ '2021':{rec:[25320.2,30314.99,66273.94,23311.4,25554.09,33309.27,25443.05,10098.9,29235.48,26088.48,27508.77,41441.4],tpv:[8434.63,9547.91,22620.91,8237.92,8722.25,10542.72,8646.66,3249.43,9340.55,9220.24,9461.12,16104.45],desp:[3650,2800,3645,2730,2807.2,3691.4,2820,1500,3150,2680,2761,3560],dcc:[859.19,1400.19,1040.57,935.2,1442.65,1646.07,1584.29,1508.92,1414.88,1722.87,1281.63,1329.36],fp:[9707.4,11980.96,14883.81,2141.43,8905.93,11859.45,9777.64,60,17629.2,7820.2,6215.63,3329.25],fpl:[2805.37,4529.18,20591.15,16247.27,3624.39,12215.16,2573.77,5020.41,9497.79,13828.26,7247.13,8845.57]},
+ '2022':{rec:[24218.58,25983.36,50969.75,37290.92,22767,29733.5,23021.27,10720.31,28795.68,25609.6,38239.63,33329.12],tpv:[8468.37,9542.71,20629.51,13669.98,9099.05,12214.36,9280.26,4729.83,9695.39,9668.53,15650.39,15547.22],desp:[2930,2970,3410,2750,2650,3250,3590.65,1400,5390,3500,3568,2680],dcc:[1552.52,1406.87,1573.27,1831.23,1251.32,1976.28,2410.58,1936.55,1217.55,2141.16,2076.5,1712.89],fp:[9378.47,3086.57,2114.88,1788.55,2629.57,4176.5,2642.81,64,4389.7,2066.61,3517.41,4757.72],fpl:[15337.51,15391.36,34847.44,498.55,24412.53,17816.49,31135.95,3327.66,3619.9,25024.98,22512.34,4692.93]},
+ '2023':{rec:[23315.27,28988.4,63557.77,28646.98,31058.74,25609.44,27615.98,14982.54,29521.74,29260.53,41111.12,42114.34],tpv:[9205.92,11067,26367.79,11583.44,12915.57,5456.79,11466.96,6532.64,12128.19,12052.83,18127.82,21205.25],desp:[3030,2847,3500,2800,3500,2800,2850,2800,3861,2800,3550,2800],dcc:[1865.29,1743.87,1826.19,1797.13,1775.33,1647.26,2256.96,1864.17,2197.65,2024.28,1564.86,1440.93],fp:[2051.43,4273.01,2551.8,3252.38,2026.15,10757.42,1816.3,1707.87,2562.04,11181.06,3623.66,3545.75],fpl:[2785.08,29559.04,31386.97,13688.79,4954.97,2359.82,24040.93,3312.37,25981.3,15327.63,21348.58,12005.34]},
+ '2024':{rec:[23629.03,43301.71,62053.85,24070.57,23727.27,35850.92,28952.64,22985.92,25552.93,34580.2,32195.97,43791.97],tpv:[9909.79,19639.24,28408.97,10345.96,13849.23,13212.76,13830.38,11227.32,12103.4,15742.07,16255.55,22934.45],desp:[3570,3600,3050,2805,3274,4443.15,2700,4275,2700,3500,2850,3200],dcc:[1783.86,1675.41,1911.38,2286.6,2014.56,1937.84,1958.1,2059.84,1578.12,2260.87,2075.58,1866.46],fp:[3270,6080.28,2615.6,2968.01,3140.25,2707.91,3602.22,2018.8,2451.24,9277.15,3270.07,5700.25],fpl:[10684.24,34843.73,38264.1,11830.97,4816.38,27092.82,4827.76,17331.34,2375.92,4049.85,8934.13,33132.13]},
+ '2025':{rec:[31740.34,30116.4,40210.96,55804.22,25617.01,25356.34,33189.5,11567.2,24864.96,36448.6,30687.23,48174.82],tpv:[15316.35,13540.95,18770.41,29347.56,12550.36,12114.56,17642.03,6061.89,11719.47,17545.68,15766.85,26913.95],desp:[3985,2930,3290,3825,2850,2850,3550,1450,2800,3650,3530,4271],dcc:[2134.24,1961.57,1912.12,2304.74,1999.43,2096.36,1935.56,2107.27,1931.95,2468.15,2180.09,1927.98],fp:[3661.06,5131.57,5520.77,3161.72,2671.55,2993.42,1326.34,325.2,928.51,9776.2,5528.79,4691.45],fpl:[3869.21,21648.99,38358.24,2478.83,31672.54,7254.66,9198.27,297.29,21930.84,12499.31,10420.6,10324.88]}
+};
+function histAny(any){return HISTORIC[any||S.activeYear]||null;}
+function esHistoric(any){return !!histAny(any);}
+function histMes(mes,camp,any){const h=histAny(any);if(!h)return 0;const a=h[camp];return a?num(a[mes]):0;}
+/* Recaptació = efectiu + TPV (full «Notes» de l'Excel), o sigui que l'efectiu se'n dedueix */
+function histTotalsMes(mes,any){
+  const rec=histMes(mes,'rec',any), tpv=histMes(mes,'tpv',any);
+  return {ef:r2(rec-tpv),tpv:tpv,rec:rec,desp:histMes(mes,'desp',any),fp:histMes(mes,'fp',any),fpl:histMes(mes,'fpl',any)};
+}
+/* Recaptació d'un mes de QUALSEVOL any (històric o normal), per poder comparar-los.
+   Als anys normals cal calcular amb les dades d'aquell any, així que es commuta un instant. */
+function recMesAny(any,mes){
+  if(HISTORIC[any])return num(HISTORIC[any].rec[mes]);
+  if(!S.years||!S.years[any])return null;
+  const prev=S.activeYear;
+  try{ S.activeYear=any; return totalsMes(mes).rec; }
+  finally{ S.activeYear=prev; }
+}
+/* Comparació de la recaptació d'un mes amb el mateix mes de l'any anterior */
+function compRecMes(mes){
+  const anyAnt=String(parseInt(S.activeYear)-1);
+  const ant=recMesAny(anyAnt,mes);
+  if(ant==null||!ant)return null;
+  const act=totalsMes(mes).rec;
+  if(!act)return null;
+  return {anyAnt:anyAnt,ant:ant,act:act,dif:r2(act-ant),pct:100*(act-ant)/ant};
+}
+function comprecHTML(mes){
+  const c=compRecMes(mes); if(!c)return '';
+  const puja=c.dif>=0;
+  return `<div class="comprec ${puja?'pos':'neg'}" data-comprec="${mes}" title="Compara amb ${MESOS[mes]} de ${c.anyAnt}">${puja?'▲':'▼'} ${Math.abs(c.pct).toFixed(1)} %</div>`;
+}
+function obreCompRec(mes){
+  const c=compRecMes(mes); if(!c)return;
+  const puja=c.dif>=0;
+  let h='<div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">Import</th></tr></thead><tbody>';
+  h+=`<tr><td>Recaptació de ${MESOS[mes]} ${S.activeYear}</td><td class="n">${eur0(c.act)}</td></tr>`;
+  h+=`<tr><td>Recaptació de ${MESOS[mes]} ${c.anyAnt}</td><td class="n">${eur0(c.ant)}</td></tr>`;
+  h+=`<tr class="total"><td>${puja?'Augment':'Disminució'}</td><td class="n ${puja?'pos':'neg'}"><b>${puja?'+':'−'}${eur0(Math.abs(c.dif))} (${puja?'+':'−'}${Math.abs(c.pct).toFixed(1)} %)</b></td></tr>`;
+  h+='</tbody></table></div>';
+  h+=`<p class="muted">${puja?'Aquest mes has recaptat '+eur0(Math.abs(c.dif))+' més que fa un any.':'Aquest mes has recaptat '+eur0(Math.abs(c.dif))+' menys que fa un any.'}</p>`;
+  modal(mTitle('Recaptació · '+MESOS[mes]+' '+S.activeYear+' vs '+c.anyAnt)+h);
+}
 function comissioMesStored(mes){const cm=Y().comTpvMes;return cm&&cm[mes]!=null?num(cm[mes]):null;}
 /* Comissió automàtica del banc del mes (ingressos TPV, brut−net) — compta des del 22-07 */
 function comissioAutoMes(mes){return comissioTpvRang(isosDelMes(mes));}
@@ -523,7 +579,7 @@ function comissioMes(mes){return (comissioMesStored(mes)||0)+comissioAutoMes(mes
 /* Total del mes: la recaptació resta la comissió TPV del mes UNA vegada. Les setmanes es queden amb
    el TPV tal com està; la comissió només es descompta al total mensual/quatrimestral (com al resum Excel).
    El TPV net que es mostra = valor desat; el brut = net + comissió (informatiu). */
-function totalsMes(mes){const t=totalsRang(isosDelMes(mes));const s=comissioMesStored(mes);if(s!=null)t.rec=r2(t.rec-s);return t;}
+function totalsMes(mes){if(esHistoric())return histTotalsMes(mes);const t=totalsRang(isosDelMes(mes));const s=comissioMesStored(mes);if(s!=null)t.rec=r2(t.rec-s);return t;}
 /* Caixa d'efectiu acumulada, a partir de juliol (mes índex 6): cada mes comença amb l'efectiu
    acumulat del mes anterior, hi suma l'efectiu de les seves setmanes, i s'hi pot afegir un ajust
    manual (+/-). L'efectiu bancari és un valor purament manual, sense fórmula. */
@@ -536,7 +592,7 @@ function caixaEfectiuMes(mes){
   return r2(prev+totalsMes(mes).ef+caixaAjustMes(mes));
 }
 function ccDelMes(mes){const p=S.activeYear+'-'+String(mes+1).padStart(2,'0');return Y().cc.filter(m=>m.data&&m.data.startsWith(p));}
-function despCCMes(mes){const c=ccCatByRole('despcc');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.debe),0);}
+function despCCMes(mes){if(esHistoric())return histMes(mes,'dcc');const c=ccCatByRole('despcc');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.debe),0);}
 function ingresTpvBancMes(mes){const c=ccCatByRole('tpv');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.haber),0);}
 
 /* ================= NAVEGACIÓ ================= */
@@ -602,6 +658,7 @@ function lineBlockHTML(key){
   return h;
 }
 function vAvui(){
+  if(esHistoric())return '<h2>Entrada del dia</h2><div class="card"><div class="warn">L\'any '+S.activeYear+' és un any històric: només en tenim els totals de cada mes, no el detall diari, i per això no s\'hi poden entrar dades.</div><p class="muted">Ves a <b>Dietari</b> per veure'+"'"+'n els mesos i el resum anual, o canvia d\'any a dalt.</p></div>';
   const ds=ctx.data||hui();
   const d=dia(ds)||{};
   const dow=new Date(ds+'T12:00').getDay();
@@ -652,6 +709,7 @@ function infoDiaHTML(ds){
   h+='</div></div>';return h;
 }
 function bindAvui(){
+  if(esHistoric())return;   // any històric: no hi ha formulari a lligar
   const ds0=ctx.data||hui();
   // Llegeix l'estat actual dels camps d'un bloc cap a avuiLines (preserva el que s'escriu)
   const readBlock=key=>{const arr=[];
@@ -810,8 +868,14 @@ function obreBreakdownSetmana(monIso,camp,backMes){const w=setmanaDe(monIso);
     const b=el.querySelector('#bkMes'); if(b)b.addEventListener('click',()=>obreBreakdownMes(backMes,camp));
     bindResumLinks(el);});}
 /* ---- Detall del total del MES: per setmanes, i cada setmana es pot obrir línia a línia ---- */
-function kpiGridMes(pars,mes){return '<div class="kpis">'+pars.map(([l,v,camp])=>'<div class="kpi'+(camp?' clickable':'')+'"'+(camp?' data-mk="'+mes+'|'+camp+'"':'')+'><div class="l">'+l+(camp?' <span class="muted">›</span>':'')+'</div><div class="v num">'+v+'</div></div>').join('')+'</div>';}
-function bindMk(root){(root||document).querySelectorAll('[data-mk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));}
+/* El 4t element de cada parell és HTML extra dins la cel·la (p. ex. la comparació amb l'any passat) */
+function kpiGridMes(pars,mes){return '<div class="kpis">'+pars.map(([l,v,camp,extra])=>'<div class="kpi'+(camp?' clickable':'')+'"'+(camp?' data-mk="'+mes+'|'+camp+'"':'')+'><div class="l">'+l+(camp?' <span class="muted">›</span>':'')+'</div><div class="v num">'+v+'</div>'+(extra||'')+'</div>').join('')+'</div>';}
+function bindMk(root){
+  const el0=root||document;
+  el0.querySelectorAll('[data-mk]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();const p=el.dataset.mk.split('|');obreBreakdownMes(parseInt(p[0]),p[1]);}));
+  // el % de comparació té el seu propi detall, no el de la recaptació
+  el0.querySelectorAll('[data-comprec]').forEach(el=>el.addEventListener('click',e=>{e.stopPropagation();obreCompRec(parseInt(el.dataset.comprec));}));
+}
 function breakdownMesHTML(mes,camp){
   if(camp==='dcc'){ // Despeses c/c van per mes natural (com la casella), no per setmanes
     const p=clauMes(mes);
@@ -847,10 +911,27 @@ function barMes(mes,vistaNom){
     <button class="small" data-nav="1" aria-label="Mes següent">›</button>
   </div>`;
 }
+/* Dietari d'un any històric: no hi ha dies, només els dotze totals mensuals */
+function vDietariHistoric(){
+  let h='<div class="warn">Any històric: només hi ha els totals de cada mes, no el detall diari. Ve de l\'Excel «Històric» i no es pot editar des de l\'app.</div>';
+  h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">Recaptació</th><th class="n">Efectiu</th><th class="n">TPV</th><th class="n">Despeses</th><th class="n">Desp. c/c</th><th class="n">Fp</th><th class="n">FpL</th></tr></thead><tbody>';
+  const tot={rec:0,ef:0,tpv:0,desp:0,dcc:0,fp:0,fpl:0};
+  for(let m=0;m<12;m++){
+    const t=histTotalsMes(m), dcc=histMes(m,'dcc');
+    tot.rec+=t.rec;tot.ef+=t.ef;tot.tpv+=t.tpv;tot.desp+=t.desp;tot.dcc+=dcc;tot.fp+=t.fp;tot.fpl+=t.fpl;
+    h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n"><b>${eur0(t.rec)}</b></td><td class="n">${eur0(t.ef)}</td><td class="n">${t.tpv?eur0(t.tpv):'—'}</td><td class="n">${eur0(t.desp)}</td><td class="n">${dcc?eur0(dcc):'—'}</td><td class="n">${eur0(t.fp)}</td><td class="n">${t.fpl?eur0(t.fpl):'—'}</td></tr>`;
+  }
+  h+=`<tr class="total"><td>Any ${S.activeYear}</td><td class="n"><b>${eur0(tot.rec)}</b></td><td class="n">${eur0(tot.ef)}</td><td class="n">${tot.tpv?eur0(tot.tpv):'—'}</td><td class="n">${eur0(tot.desp)}</td><td class="n">${tot.dcc?eur0(tot.dcc):'—'}</td><td class="n">${eur0(tot.fp)}</td><td class="n">${tot.fpl?eur0(tot.fpl):'—'}</td></tr>`;
+  h+='</tbody></table></div></div>';
+  h+='<p class="muted" style="margin:8px 2px 0">L\'efectiu no consta a l\'Excel: se\'n dedueix restant el TPV de la recaptació.'+
+    (S.activeYear==='2020'?' El 2020 encara no separava Fp de FpL ni tenia despeses de compte corrent.':'')+'</p>';
+  return h;
+}
 function vDietari(){
   const sub=ctx.sub==='any'?'any':'mes';
   const subbar=`<div class="subtabs"><button data-dsub="mes" class="${sub==='mes'?'on':''}">Mes a mes</button><button data-dsub="any" class="${sub==='any'?'on':''}">Resum anual</button></div>`;
   if(sub==='any')return subbar+vResumAnual();
+  if(esHistoric())return subbar+vDietariHistoric();
   const mes=ctx.mes??(new Date().getFullYear()==S.activeYear?new Date().getMonth():0);
   ctx.mes=mes;
   const setm=setmanesDelMes(parseInt(S.activeYear),mes);
@@ -883,7 +964,7 @@ function vDietari(){
   const tpvNet = comStored!=null ? t.tpv : r2(t.tpv-comAuto);
   const tpvBrut = comStored!=null ? r2(t.tpv+comMes) : t.tpv;
   h+='<div class="card"><h3>Total del mes <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d\'on surt)</span></h3>'+
-    kpiGridMes([['Recaptació',eur0(t.rec),'rec'],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dcc),'dcc'],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']],mes)+
+    kpiGridMes([['Recaptació',eur0(t.rec),'rec',comprecHTML(mes)],['Efectiu',eur0(t.ef),'ef'],['TPV',eur0(t.tpv),'tpv'],['Despeses',eur0(t.desp),'desp'],['Fp',eur0(t.fp),'fp'],['FpL',eur0(t.fpl),'fpl'],['Despeses c/c',eur0(dcc),'dcc'],['% TPV',t.rec?(100*t.tpv/t.rec).toFixed(1)+' %':'—']],mes)+
     (comStored?'<p class="muted" style="margin:6px 2px 0">La recaptació és la suma de les setmanes ('+eur0(t.rec+comStored)+') menys la comissió TPV del mes ('+eur0(comStored)+').</p>':'')+'</div>';
   h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Comissió TPV del mes</h3><button class="small" data-editcom="'+mes+'">Edita</button></div>'+
     kpiGrid([['Comissió TPV',eur0(comMes)],['% comissió',tpvNet?(100*comMes/tpvNet).toFixed(1)+' %':'—'],['TPV net',eur0(tpvNet)],['TPV brut',eur0(tpvBrut)]])+
@@ -1031,6 +1112,8 @@ function migra(){
   // categoria pròpia dels pagaments de factures que es porten al banc (no és «Despeses cc»,
   // perquè aquestes factures ja compten al dietari pel seu bloc de Fp/FpL/Despeses)
   if(!ccCatByRole('pagfact')&&!ccCat('pagfact'))ccCats().push({id:'pagfact',nom:'Pagament de factures',role:'pagfact'});
+  // Els anys històrics han d'existir al selector; les xifres viuen a HISTORIC, no aquí
+  Object.keys(HISTORIC).forEach(a=>{if(!S.years[a])S.years[a]=anyBuit();});
   // «Altres» va passar de ser només un llistat d'inventari a ser un tipus de compra amb factures
   Object.values(S.years||{}).forEach(y=>{if(!Array.isArray(y.altres))y.altres=[];});
   if(S.compresNoms&&S.compresNoms.inventari&&!S.compresNoms.altres){S.compresNoms.altres=S.compresNoms.inventari;delete S.compresNoms.inventari;}
@@ -2088,7 +2171,8 @@ function vResumAnual(){
   h+='<tr class="total"><td>Any</td>'+KS.map(k=>`<td class="n">${eur0(any[k])}</td>`).join('')+coefCellHTML(any.rec,any.desp+any.fp,true)+'</tr>';
   h+='</tbody></table></div>'+
     '<p class="muted" style="margin:8px 2px 0">Coeficient = (Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100%</p></div>';
-  // % de recaptació per dia de la setmana
+  // % de recaptació per dia de la setmana (cal el detall diari: als anys històrics no hi és)
+  if(esHistoric())return h;
   const rds=recPerDiaSetmana(), sums=rds.sums, tot=rds.tot, qDia=rds.q, qDiaTot=rds.qTot;
   const cella=(v,t)=>`<td class="n">${v?eur0(v):''}<div class="muted" style="font-size:.75rem">${t&&v?(100*v/t).toFixed(1)+' %':''}</div></td>`;
   h+='<div class="card"><h3>Recaptació per dia de la setmana</h3><div class="scrollx"><table><thead><tr><th>Dia</th>'+
