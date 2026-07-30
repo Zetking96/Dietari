@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#16435E">
+<!-- CSP: 'unsafe-inline' a script-src cal perquè tota la lògica de l'app és un únic <script>
+     inline (sense pas de build); es compensa restringint estrictament d'on es pot carregar
+     res més (connect-src, object-src, base-uri, frame-ancestors). -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -177,7 +181,12 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<!-- Versió fixada (2.111.0) + verificació d'integritat (SRI). No es fa servir la variant
+     .min.js: jsdelivr la genera dinàmicament i avisa expressament de no posar-hi SRI
+     (https://www.jsdelivr.com/using-sri-with-dynamic-files); aquesta és la publicada, estàtica. -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.111.0/dist/umd/supabase.js"
+  integrity="sha384-faMlYZUtkJj+Sh6Bmu/L0GzPcraRWN6CW+9RH3GUrK/Z0WS9tgaNNt0tHiLxsbdb"
+  crossorigin="anonymous"></script>
 
 <script>
 /*! xlsx.js (C) 2013-present SheetJS -- http://sheetjs.com */
