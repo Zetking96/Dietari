@@ -156,8 +156,10 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
   calculadora setmanal de sortides, comparació interanual (fletxa + % clicable) a Recaptació,
   Despeses, Despeses c/c, Fp i FpL.
 - **Resum anual**: taula mensual, quatrimestres, recaptació per dia de la setmana, i el bloc
-  comparatiu — *El que portem d'any* (amb selector de mes) → *Quatrimestres* → *Any complet* →
-  *Tendència de tots els anys*.
+  comparatiu — selector de l'any de referència (val per a tot el bloc, `ctx.compAny`) → *rang de
+  mesos lliure* (dos desplegables, `ctx.compDes`/`ctx.compFins`; el títol canvia a «Març–Maig»
+  quan no arrenca al gener) → *Quatrimestres* → *Any complet* → *Tendència de tots els anys*
+  (amb columna «vs [any de referència]» a més de la cadena «vs any ant.»).
 - **Compres**: Bacallà · Olives · Conserva · Altres (noms editables a Config). IVA per producte,
   import final de factura i descompte. «Altres» té unitat lliure per producte i barreja factures
   amb el que s'apunta al dia a dia.
