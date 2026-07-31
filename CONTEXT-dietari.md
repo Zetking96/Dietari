@@ -1,55 +1,192 @@
-# Projecte "Dietari" — context per a Claude
+# Dietari — guia de treball per a Claude
 
-Document de traspàs. Si reprens la feina sobre aquesta app, llegeix això primer.
-Treballa sempre en català, concís, prosa directa. Tracta l'usuari (Jaume) com a igual i avisa de riscos o millors angles.
+Document de traspàs entre sessions. **Llegeix això abans de tocar res**: t'estalvia haver de
+tornar a buscar el mateix cada vegada.
 
-## Què és
-App de gestió d'un parador de bacallà i conserves (Mercat de Provençals, Barcelona; marca Pesca Salada Gil). Un sol fitxer `index.html` (~330 KB) amb SheetJS incrustat. Autenticació + sincronització al núvol amb Supabase, allotjada a Netlify.
+Treballa sempre **en català**, concís, prosa directa. El Jaume és el propietari de la parada i
+sap de què va el negoci: tracta'l com a igual, avisa dels riscos i digues-li quan una decisió
+seva té una pega, però no li facis classes.
 
-## Convencions de treball
-- L'usuari adjunta l'última versió de `index.html`. Copia-la a un directori editable abans de tocar res.
-- Qualsevol operació destructiva ha de ser un botó EXPLÍCIT (mai automàtica en carregar), perquè la sync de Supabase no esborri dades en altres dispositius.
-- Reutilitza helpers i CSS existents. No reinventis estils.
-- Abans de lliurar: `node --check` de tots els `<script>` + una prova de lògica aïllada de les funcions noves. Lliura a `/mnt/user-data/outputs/` i resumeix canvis i riscos.
-- UI en català, mínim format.
-- ⚠️ **El fitxer és gran (~330 KB): l'eina Edit/Write el TRUNCA en escriure** (talla el final, deixa el script sense tancar i l'app no arrenca). Edita per shell (`sed`/`cat`/heredoc) i comprova SEMPRE que acaba amb `arrenca();</script></body></html>` i que `wc -l` quadra. Desa per `cp`.
-- Netlify (dietari.netlify.app) pot anar endarrerit respecte del fitxer del projecte. No el facis servir com a base sense comprovar versió.
+---
 
-## Estat / dades (després de la feina feta)
-- `S = {activeYear, years:{}, ccCats:[...]}`. `Y()` = `S.years[S.activeYear]`. **`ccCats` és GLOBAL** (a `S`, no per any).
-- Any (`anyBuit()`): `{dies, tanc, cc, factures, bacalla, olivesCat, olivesCompres, conserva, factorConserva:1.114}`.
-- Dia: `Y().dies[ISO] = {ef, tpv, fpLines, fplLines, despLines, obs}`. `ef`/`tpv` = número únic. `fpLines`/`fplLines`/`despLines` = arrays de línies `{imp, c(concepte), rec(bool)}`. Cada línia decideix per separat si compta a recaptació (`rec`). Helpers: `lineSum(arr)`, `lineRec(arr)`, `dFp(d)`/`dFpl(d)`/`dDesp(d)` (sumes), `diaTeRes(d)` (dia no buit). **Model antic (`fp/fpl/desp` + `fpRec/fplRec` valor únic) migrat per `migraDies()` dins `migra()`** (idempotent: 1 línia per valor; despesa antiga → `rec:false`).
-- Tancament: `Y().tanc[ISO_dissabte] = {caixa, banc, ingresTpv, notes}`. **Setmanal, clau = dissabte** (abans era mensual `YYYY-MM`; codi vell `clauMes` encara existeix però NO s'usa).
-- Moviment banc: `{id, data(ISO), concepte, catId, estat, debe, haber, obs}`. La categoria es resol per `catId` via `ccCatNom(m)`.
-- Categories banc (`S.ccCats`): `[{id, nom, role}]`. Rols interns: `'despcc'` i `'tpv'` (la lògica hi va lligada, no al nom → reanomenar és segur; esborrar-les trenca els seus càlculs). Seed: `CC_SEED`.
-- Factura: `{id, num, ref, empresa, imp, concepte, categoria, estat('Pendent'|'Pagat'), mode, talo, dataPag(text lliure), dataPagISO(date), recDia(bool), obs}`.
-- Olives catàleg: `{id, nom, tipus('Granel'|'Llaunes'), ord}` — **sense preu**. Compres: `{id, prod, set(dilluns ISO), quant, imp}`. €/kg = `imp/quant` via `pkg(imp,quant)`. `SEED_OLIVES` = 19 tipus (només nom+tipus).
+## 1. Què és i on viu
 
-## Arquitectura clau
-- **Setmanes Dl–Ds (6 dies), cada setmana pertany al mes del seu DILLUNS.** Si vessa al mes següent, els dies queden al mes d'inici. Helpers: `mondayOnOrBefore`, `setmanaDe(ds)`, `dissabteDe(ds)`, `mesDeSetmana(satISO)`, `setmanesDelMes(any,mes)`, `isosDelMes`, `w0(sat)`.
-- Recaptació: `recDia(d,ds) = ef + tpv + lineRec(fpLines) + lineRec(fplLines) + lineRec(despLines) + factDiaRec(ds)` (suma només les línies marcades `rec`, incloses despeses). `totalsRang(isos)` suma components (fp/fpl/desp via `dFp/dFpl/dDesp`) i rec; `totalsMes(mes)`.
-- Enllaços al dia: `factDia(ds)`, `factDiaRec(ds)` (factures Pagat amb `dataPagISO===ds`); `despCCDia(ds)` (moviments banc rol `despcc` d'aquella data, només informatius). Render a `infoDiaHTML(ds)`.
-- Categories: `ccCats()`, `ccCat(id)`, `ccCatByRole(role)`, `ccCatNom(m)`, `migra()` (mapa categoria-text antiga → `catId`, cridat a `iniciaApp`). `despCCMes`/`ingresTpvBancMes` filtren per rol.
-- Resum anual: **quatrimestres** Q1 gen–abr, Q2 mai–ago, Q3 set–des (`Math.floor(mes/4)`), de ef/tpv/rec/desp/fp/fpl. Mes = suma de setmanes; any = suma de quatrimestres. **Sense IRPF/trimestral.**
-- Vistes principals: `vAvui`/`bindAvui`, `vDietari`/`bindDietari` (tancament setmanal via `data-tancset`), `vTancament`/`bindTancament` (`ctx.tancSet` = dissabte), `vCC`/`formCC`, `vFactures`/`formFactura`, `vResumAnual`, `vConfig`/`bindConfig`, `exportaXLSX`. Olives: `vOlives`, `formOlivaCat`, `formOlivaCompra`, `formSetmanaOlives`, `olGraellaHTML`.
-- Config té: crea any, factor conserva, inicialitza olives, gestió de categories del banc (afegir/reanomenar/esborrar), esborra tancaments de l'any, esborra l'any.
+App de gestió comptable d'una parada de bacallà i conserves (Mercat de Provençals, Barcelona —
+*Pesca Salada Gil*). **Un sol fitxer `index.html`** (~2.700 línies) amb HTML + CSS + JS, sense
+build ni frameworks. SheetJS incrustat per exportar a Excel; Supabase per autenticació i dades.
 
-## Decisions ja preses (no tornis a preguntar)
-1. Tancaments setmanals cada dissabte; mes=suma de setmanes, quatrimestre=suma de mesos, any=suma de quatrimestres. Tancaments mensuals vells: esborrats (botó a Config).
-2. **Recaptació per línia** (juny 2026): cada línia de Fp/FpL/Despeses té la seva casella `rec`. En un dia hi pot haver diverses línies i només algunes sumen a recaptació. Despesa marcada `rec` **suma** a recaptació (criteri demanat per l'usuari). Entrada al formulari Avui amb blocs editables (+ línia / ✕). Export Excel: full `Dietari` amb totals/dia + full `Línies` amb el detall.
-3. Categories del banc: globals, totes editables; lògica lligada a id/rol intern.
-4. Al dia del dietari hi surten les 'Despeses cc' del banc, **només informatives** (no sumen).
-5. Factura Pagada amb data: surt al dia amb commutador; si recaptació, suma; si no, informativa. IRPF no interessa (fora trimestral).
-6. Olives: sense preu de referència; SEED només nom+tipus.
+| | |
+|---|---|
+| Carpeta | `C:\Users\Jaume Gil\Documents\0Mercat\Apps\App dietari` |
+| Repo | `Zetking96/Dietari` (branca `main`) |
+| Publicat a | https://zetking96.github.io/Dietari/ (GitHub Pages, **actiu**) |
+| | https://dietari.netlify.app (Netlify, pausat per crèdits) |
+| Desplegament | **`git push` i ja està** — es publica sol en 1-2 min. No cal pujar res a mà. |
 
-## Riscos / límits coneguts
-- La recaptació ja NO és igual a efectiu+TPV (s'hi sumen Fp/FpL marcats i factures-rec). Volgut, però els components no quadren amb el total.
-- Esborrar la categoria amb rol 'despcc' o 'tpv' trenca els seus càlculs i NO hi ha forma de reassignar el rol des de la UI (només reanomenar és segur). Possible millora futura: editor de rol.
-- Factures amb només data en text lliure (antigues) no apareixen al dia; cal la data estructurada `dataPagISO`.
-- L'arrencada completa amb Supabase no s'ha pogut provar en l'entorn de desenvolupament; la sync serialitza tot `S`, així que `ccCats` global i la resta haurien de viatjar bé. Recomanar exportar Excel abans d'esborrar res.
-- `clauMes` i `ingresTpvBancMes` han quedat sense ús (codi mort inofensiu).
+---
 
-## Possibles passos següents (no demanats encara)
-- Editor de rol per a categories del banc (reassignar 'despcc'/'tpv').
-- Suport a diverses dates de pagament / pagaments parcials d'una factura.
-- Decidir si el saldo caixa/banc dels tancaments setmanals s'ha de resumir d'alguna manera a nivell mensual (ara són snapshots per dissabte).
+## 2. El cicle de treball
+
+El Jaume vol **el canvi fet i publicat**, sense plans ni fases pel mig. Edita, comprova,
+comiteja i puja dins del mateix torn. El `push` forma part del canvi, no cal demanar permís.
+
+```bash
+# 1. Comprovació de sintaxi (executa-la SEMPRE després d'editar)
+cd "C:\Users\Jaume Gil\Documents\0Mercat\Apps\App dietari"
+START=$(grep -n '^<script>$' index.html | sed -n '2p' | cut -d: -f1)
+END=$(grep -n '^</script>$' index.html | tail -1 | cut -d: -f1)
+sed -n "$((START+1)),$((END-1))p" index.html > /tmp/dietari_check.js
+node --check /tmp/dietari_check.js && echo SYNTAX_OK
+
+# 2. Commit + push (l'autor ja està configurat al repo, no cal cap flag)
+git add index.html && git commit -m "feat: ..." && git push
+```
+
+El `sed -n '2p'` agafa el **segon** `<script>` perquè el primer és el bundle de SheetJS.
+
+---
+
+## 3. Com provar les coses (això funciona bé, fes-ho servir)
+
+No tens accés a les dades reals del Jaume (calen les seves credencials de Supabase, que **no has
+de manejar mai**). Però pots provar la lògica de veritat injectant un estat fals a la pàgina:
+
+```js
+// mcp__Claude_Browser__navigate a file:///.../index.html  (amb force:true per recarregar)
+// i després javascript_tool:
+(function(){
+try{
+  S={activeYear:'2026',years:{'2026':anyBuit()}}; migra();
+  Y().dies['2026-01-07']={ef:20000,tpv:15000,fpLines:[],fplLines:[],despLines:[],obs:''};
+  vista='dietari'; ctx={mes:0,sub:'mes'};   // ⚠️ cal 'vista' si després crides render()
+  render();
+  return { /* el que vulguis comprovar */ };
+}catch(e){return {ERROR:e.message,stack:(e.stack||'').split('\n').slice(0,3)};}
+})()
+```
+
+**Paranys del test, no del codi** (m'hi he entrebancat més d'un cop):
+- Si crides `render()` sense haver posat `vista`, es pinta la vista per defecte (`avui`) i sembla
+  que el teu canvi no hi és.
+- No comparis `eur0(1234)` amb `innerHTML`: el format porta un espai fi (nbsp) i mai coincideix.
+  Llegeix `textContent` de les cel·les.
+- El 2026 té **comissions TPV desades** de gener a juny (venen de l'Excel). Un mes «buit»
+  d'aquest rang NO dona zero a `totalsMes`, dona un negatiu. Si has de saber si un mes té dades,
+  mira `totalsRang(isosDelMes(m))` en cru.
+
+Per diagnosticar les dades reals del Jaume: dona-li **UN sol script de consola** que ho imprimeixi
+tot de cop (millor amb `console.table`), no una cadena d'anades i vingudes.
+
+---
+
+## 4. Mapa del codi
+
+Les línies es mouen cada sessió: busca per **nom de funció** (`grep -n "function X"`), no per
+número. Les seccions estan marcades amb `/* ===== NOM ===== */`:
+
+`CONFIGURACIÓ SUPABASE` · `ESTAT I PERSISTÈNCIA` · `AUTENTICACIÓ` · `UTILITATS` · `NAVEGACIÓ` ·
+`MODAL` · `VISTA: AVUI` · `VISTA: DIETARI` · `VISTA: TANCAMENT SETMANAL` · `VISTA: COMPTE CORRENT` ·
+`VISTA: FACTURES` · `VISTA: MÉS` · `VISTA: COMPRES` · `Inventari` · `VISTA: TRESORERIA` ·
+`VISTA: RESUM ANUAL` · `COMPARACIÓ ENTRE ANYS` · `EXPORTACIÓ XLSX` · `VISTA: CÒPIA` ·
+`VISTA: CONFIGURACIÓ` · `ARRENCADA`
+
+**Patró de vistes**: cada pantalla té `vXxx()` que retorna HTML i `bindXxx()` que hi lliga els
+events. `render()` pinta `V[vista]()` dins `#view` i crida `bindVista()`. `go(vista, ctx)` navega.
+`ctx` és l'estat de la vista (mes, subpestanya, filtres…) i es perd en canviar d'any.
+
+**Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
+`eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`
+`modal(html, onMount)` `mTitle(t)` `tancaModal()` `kpiGrid` `kpiGridWk` `kpiGridMes`
+`dlOpts(vals)` `distinctVals(arr,key)`
+
+---
+
+## 5. Model de dades
+
+```
+S = { activeYear, years:{}, ccCats:[], compresNoms:{}, ivaDefecte }   ← ccCats i compresNoms són GLOBALS
+Y() = S.years[S.activeYear]
+```
+
+`anyBuit()` → `{dies, tanc, cc, factures, bacalla, conserva, altres, olivesCat, olivesCompres,
+comTpvMes, caixaMes, caixaSet, factorConserva}`
+
+| Cosa | Forma |
+|---|---|
+| Dia | `dies[ISO] = {ef, tpv, fpLines, fplLines, despLines, obs}` |
+| Línia del dia | `{imp, c, rec, quant, unitat}` — `quant`/`unitat` opcionals (inventari) |
+| Tancament | `tanc[ISO_dissabte] = {caixa, banc, ingresTpv, notes}` |
+| Banc | `{id, data, concepte, catId, estat, debe, haber, obs, recDia, srcFact, srcPag}` |
+| Factura | `{id, num, empresa, imp, concepte, categoria, estat, pagaments:[], recDia, pdf, auto, srcType, srcId}` |
+| Pagament | `{id, data, talo, imp, mode, banc}` — `banc:true` genera l'apunt al compte corrent |
+| Compra | `{id, prov, data, diaCat, productes:[], total}` a `bacalla` / `conserva` / `altres` |
+| Producte | `{producte, qty, imp, pv, iva, unitat}` — `unitat` només a `altres` |
+| Sortides caixa | `caixaSet[ISO_dilluns] = [{c, imp}]` |
+
+**Categories del banc** (`S.ccCats`): `{id, nom, role}`. Rols interns: `despcc`, `tpv`, `pagfact`.
+La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar trenca els càlculs.
+
+---
+
+## 6. Regles de negoci que és fàcil trencar
+
+1. **Setmanes Dl–Ds; cada setmana pertany al mes del seu DIMECRES** (regla de majoria de dies,
+   com l'Excel del Jaume). `setmanesDelMes(any,mes)`, `isosDelMes(mes)`.
+2. **La comissió TPV es resta EXACTAMENT UN COP**, al total mensual (`totalsMes`). Les setmanes
+   es queden amb el brut. Ja s'hi va anar i tornar; no la tornis a treure ni a duplicar.
+3. **Recaptació ≠ efectiu + TPV.** També hi sumen les línies de Fp/FpL/Despeses marcades `rec` i
+   les factures/despeses c/c marcades `rec`. És volgut.
+4. **Coeficient** = `(Recaptació ÷ (Despeses + Fp + FpL) − 1) × 100`. «Despeses» inclou les de
+   compte corrent i «Fp» inclou FpL. Viu al Resum anual, no a la taula mensual.
+5. **La caixa d'efectiu arrenca el juliol** (`CAIXA_DES=6`) i encadena mes a mes cap enrere.
+   Suma l'efectiu **real** de cada setmana (entrat − utilitzat). Les sortides d'efectiu **no**
+   toquen recaptació ni despeses: són dos llibres diferents.
+6. **Anys 2020–2025: només lectura.** Les xifres viuen a la constant `HISTORIC` del codi, no a
+   Supabase. Només totals mensuals. El 2020 no separa Fp de FpL ni té despeses c/c.
+7. **Als costos, pujar és dolent**: `CAMP_COST` inverteix el color de les comparacions.
+8. **`esc()` a tot el text lliure** que vagi a HTML. S'ha auditat i està net; no ho espatllis.
+9. Per calcular sobre un altre any, commuta `S.activeYear` i **restaura-ho al `finally`**
+   (patró de `acumulaRang`, `valMesAny`). Mai el deixis canviat.
+
+---
+
+## 7. Estat de les funcionalitats (juliol 2026)
+
+- **Dietari**: entrada diària per línies, setmanes Dl–Ds, tancament setmanal, caixa d'efectiu amb
+  calculadora setmanal de sortides, comparació interanual (fletxa + % clicable) a Recaptació,
+  Despeses, Despeses c/c, Fp i FpL.
+- **Resum anual**: taula mensual, quatrimestres, recaptació per dia de la setmana, i el bloc
+  comparatiu — *El que portem d'any* (amb selector de mes) → *Quatrimestres* → *Any complet* →
+  *Tendència de tots els anys*.
+- **Compres**: Bacallà · Olives · Conserva · Altres (noms editables a Config). IVA per producte,
+  import final de factura i descompte. «Altres» té unitat lliure per producte i barreja factures
+  amb el que s'apunta al dia a dia.
+- **Factures**: pagaments múltiples amb forma de pagament i apunt al banc opcional; conversió de
+  factura normal a compra.
+- **Seguretat**: auditada i tancada (RLS, bucket per carpeta d'usuari, registres tancats,
+  reautenticació per canviar accés, CSP i SRI). Vegeu la memòria `seguretat-supabase`.
+
+---
+
+## 8. Coses que no s'han fet (i per què)
+
+- **Franja mes a mes amb el % de cada mes** al Resum anual: oferta i no triada. Si la demana, és
+  ràpida.
+- **Passar automàticament les despeses del dia a la calculadora d'efectiu**: ara s'apunten a mà.
+- **2FA (TOTP)**: desproporcionat per un ús d'una sola persona sense dades de tercers.
+- **CSP amb hash dels scripts inline**: caldria refer el hash a cada edició i un oblit deixaria
+  l'app en blanc.
+- `supabase-js` està **fixat a la 2.111.0** amb SRI: ja no s'actualitza sol. Cal pujar-la a mà de
+  tant en tant.
+
+---
+
+## 9. Notes pràctiques
+
+- `Read` sobre tot `index.html` **falla** (supera el límit de tokens). Llegeix per trossos amb
+  `offset`/`limit`, o millor `grep -n` per trobar el que busques.
+- `Edit` funciona bé amb aquest fitxer (desenes d'edicions per sessió sense problemes). L'avís
+  antic que el truncava ja no aplica.
+- `.claude/` està al `.gitignore`: les skills instal·lades no es publiquen.
+- Les dades es desen a Supabase amb retard d'1,5 s (`save()` → `pushRemote`), i també a
+  `localStorage` per treballar sense connexió.

@@ -1,5 +1,7 @@
 # Config local de Claude Code (no es publica)
 .claude/
+.agents/
+skills-lock.json
 
 # Fitxers temporals i del sistema
 Thumbs.db
