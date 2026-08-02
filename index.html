@@ -2257,10 +2257,10 @@ function vOlives(){
   }
   h+='</div>';
   const tq=[0,0,0],tqq=[0,0,0];let ta=0,taq=0;
-  const lq=[[],[],[]],lAny=[];   // línies amb preu de venda, per calcular el benefici
+  const lq=[[],[],[]],lAny=[],lProd={};   // línies amb preu de venda, per calcular el benefici
   Y().olivesCompres.forEach(c=>{if(!c.set)return;const q=Math.floor(olMes(c.set)/4);
     tq[q]+=num(c.imp);tqq[q]+=num(c.quant);ta+=num(c.imp);taq+=num(c.quant);
-    const l={qty:c.quant,imp:c.imp,pv:olPv(c)};lq[q].push(l);lAny.push(l);});
+    const l={qty:c.quant,imp:c.imp,pv:olPv(c)};lq[q].push(l);lAny.push(l);(lProd[c.prod]=lProd[c.prod]||[]).push(l);});
   const QN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
   const benAny=beneficiLinies(lAny);
   h+='<div class="card"><h3>Totals de l\'any</h3><div class="scrollx"><table><thead><tr><th>Període</th><th class="n">Quant.</th><th class="n">Import</th><th class="n">€/kg</th><th class="n">Benefici</th><th class="n">%</th></tr></thead><tbody>';
@@ -2271,9 +2271,19 @@ function vOlives(){
   if(ctx.olGrid)h+=olGraellaHTML();
   h+='</div>';
   const senseP=cat.filter(p=>p.pv==null||p.pv==='').length;
-  h+='<div class="card"><h3>Catàleg ('+cat.length+' tipus)</h3><div class="scrollx"><table><thead><tr><th>Nom</th><th>Tipus</th><th class="n">Venda €/kg</th></tr></thead><tbody>'+
-    cat.map(p=>`<tr class="clickable" data-olcat="${p.id}"><td>${esc(p.nom)}</td><td>${esc(p.tipus)}</td><td class="n">${p.pv!=null&&p.pv!==''?num(p.pv).toFixed(2):'<span class="muted">—</span>'}</td></tr>`).join('')+'</tbody></table></div>'+
-    (senseP?`<p class="muted" style="margin:8px 2px 0">${senseP} ${senseP===1?'tipus no té':'tipus no tenen'} preu de venda: clica-hi per posar-l’hi i que compti al benefici.</p>`:'')+
+  // què pesa cada oliva dins del benefici de l'any
+  const cellBenProd=p=>{
+    const b=beneficiLinies(lProd[p.id]);
+    if(!b.cost)return '<td class="n muted">—</td><td class="n muted">—</td>';
+    const bo=b.ben>=0, pes=benAny.ben?100*b.ben/benAny.ben:null;
+    return `<td class="n ${bo?'pos':'neg'}">${eur0(b.ben)}</td><td class="n">${pes!=null?pes.toFixed(1)+' %':'—'}</td>`;
+  };
+  h+='<div class="card"><h3>Catàleg ('+cat.length+' tipus)</h3><div class="scrollx"><table><thead><tr><th>Nom</th><th>Tipus</th><th class="n">Venda €/kg</th><th class="n">Benefici</th><th class="n">% del total</th></tr></thead><tbody>'+
+    cat.map(p=>`<tr class="clickable" data-olcat="${p.id}"><td>${esc(p.nom)}</td><td>${esc(p.tipus)}</td><td class="n">${p.pv!=null&&p.pv!==''?num(p.pv).toFixed(2):'<span class="muted">—</span>'}</td>`+cellBenProd(p)+'</tr>').join('')+
+    `<tr class="total"><td colspan="3">Benefici de l'any</td><td class="n ${benAny.ben>=0?'pos':'neg'}">${benAny.cost?eur0(benAny.ben):'—'}</td><td class="n">${benAny.cost?'100,0 %':'—'}</td></tr>`+
+    '</tbody></table></div>'+
+    `<p class="muted" style="margin:8px 2px 0">El benefici de cada oliva és el de tot l'any ${S.activeYear}, i el % és el tros que li toca del benefici total.`+
+    (senseP?` ${senseP} ${senseP===1?'tipus no té':'tipus no tenen'} preu de venda: clica-hi per posar-l’hi i que compti.`:'')+'</p>'+
     '<button id="addCat" style="width:100%;margin-top:10px">Afegeix tipus al catàleg</button></div>';
   return h;
 }
