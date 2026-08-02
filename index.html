@@ -320,6 +320,10 @@ function iso(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'
 function dataCA(isoStr){const [a,m,d]=isoStr.split('-');return parseInt(d)+' '+MESOS[parseInt(m)-1].slice(0,3)+'.';}
 function dataCAL(isoStr){const [a,m,d]=isoStr.split('-');return parseInt(d)+' de '+MESOS[parseInt(m)-1]+' de '+a;}
 function mesDeIso(s){return parseInt(s.slice(5,7))-1;}
+/* Rang d'una setmana en curt: «3 – 8 ago.» si no canvia de mes, «27 jul. – 1 ago.» si en canvia */
+function rangCurt(des,fins){
+  return (des.slice(0,7)===fins.slice(0,7)?parseInt(des.slice(8)):dataCA(des))+' – '+dataCA(fins);
+}
 /* Setmanes Dl–Ds: 6 dies. Cada setmana pertany al mes que té més dies (el mes del seu dimecres) */
 function mondayOnOrBefore(d){const x=new Date(d.getFullYear(),d.getMonth(),d.getDate());x.setDate(x.getDate()-((x.getDay()+6)%7));return x;}
 function setmanaDe(ds){const mon=mondayOnOrBefore(new Date(ds+'T12:00'));const w=[];for(let i=0;i<6;i++){const x=new Date(mon);x.setDate(mon.getDate()+i);w.push(iso(x));}return w;}
@@ -657,7 +661,26 @@ function caixaEfectiuMes(mes){
   const prev=mes>CAIXA_DES?caixaEfectiuMes(mes-1):0;
   return r2(prev+efectiuRealMes(mes)+caixaAjustMes(mes));
 }
-function ccDelMes(mes){const p=S.activeYear+'-'+String(mes+1).padStart(2,'0');return Y().cc.filter(m=>m.data&&m.data.startsWith(p));}
+/* Data que decideix a quin mes compta un moviment del banc.
+   Els ingressos de TPV van al mes de la SETMANA de la venda (mana el dimecres, igual que al
+   dietari): el banc diposita amb retard i un ingrés del 3 d'agost pot ser d'una setmana de
+   juliol. La resta de moviments compten al mes de la seva data, com sempre. */
+function ccDataMes(m){
+  const c=ccCatByRole('tpv');
+  if(c&&m.catId===c.id){
+    const base=m.tpvData||m.data;
+    if(base)return setmanaDe(base)[2];   // el dimecres de la setmana marca el mes
+  }
+  return m.data;
+}
+/* La setmana a la qual s'ha assignat un moviment, si no és la de la seva pròpia data */
+function ccSetmanaMoguda(m){
+  const d=ccDataMes(m);
+  if(!d||mesDeIso(d)===mesDeIso(m.data))return null;
+  const w=setmanaDe(m.tpvData||m.data);
+  return rangCurt(w[0],w[5]);
+}
+function ccDelMes(mes){const p=S.activeYear+'-'+String(mes+1).padStart(2,'0');return Y().cc.filter(m=>m.data&&ccDataMes(m).startsWith(p));}
 function despCCMes(mes){if(esHistoric())return histMes(mes,'dcc');const c=ccCatByRole('despcc');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.debe),0);}
 function ingresTpvBancMes(mes){const c=ccCatByRole('tpv');if(!c)return 0;return ccDelMes(mes).filter(m=>m.catId===c.id&&m.estat!=='Cancelat').reduce((s,m)=>s+num(m.haber),0);}
 
@@ -1048,10 +1071,15 @@ function vDietari(){
   ctx.mes=mes;
   const setm=setmanesDelMes(parseInt(S.activeYear),mes);
   let h=subbar+barMes(mes);
+  // les setmanes surten plegades: només els totals. Cliques la capçalera i es despleguen els dies.
+  const obertes=ctx.setmObertes||{};
   setm.forEach((w,i)=>{
-    const t=totalsRang(w);
-    h+='<div class="card tight"><div class="scrollx"><table><thead><tr><th>Dia</th><th class="n">Efectiu</th><th class="n">TPV</th><th class="n">Desp.</th><th class="n">Fp</th><th class="n">FpL</th><th class="n">Recapt.</th></tr></thead><tbody>';
-    w.forEach(ds=>{
+    const t=totalsRang(w), obert=!!obertes[w[0]];
+    const sat=w[5], tc=Y().tanc[sat]||null, senseTancar=!tc&&sat<hui();
+    h+='<div class="card tight"><div class="scrollx"><table><thead>'+
+      `<tr class="clickable" data-setm="${w[0]}"><th style="text-transform:none;font-size:.8rem;color:var(--tinta);white-space:nowrap">${obert?'▾':'▸'} Setm. ${i+1}${senseTancar?' <span class="muted">· sense tancar</span>':''}</th>`+
+      '<th class="n">Efectiu</th><th class="n">TPV</th><th class="n">Desp.</th><th class="n">Fp</th><th class="n">FpL</th><th class="n">Recapt.</th></tr></thead><tbody>';
+    if(obert)w.forEach(ds=>{
       const d=dia(ds); const dow=(new Date(ds+'T12:00').getDay()+6)%7;
       const vDesp=dDesp(d,ds),vFp=dFp(d,ds),vFpl=dFpl(d,ds);
       h+=`<tr class="clickable" data-dia="${ds}"><td>${DIES[dow]} ${parseInt(ds.slice(8))}${d&&d.obs?' ✎':''}</td>
@@ -1061,14 +1089,15 @@ function vDietari(){
         <td class="n"><b>${(d||factDia(ds).length)?eur0(recDia(d,ds)):''}</b></td></tr>`;
     });
     const outSet=caixaSetSortides(w[0]);
-    h+=`<tr class="total"><td>Setm. ${i+1}</td><td class="n clickable" data-wk="${w[0]}|ef">${eur0(r2(t.ef-outSet))}${outSet?`<div class="muted" style="font-size:.7rem;font-weight:400">de ${eur0(t.ef)}</div>`:''}</td><td class="n clickable" data-wk="${w[0]}|tpv">${eur0(t.tpv)}</td><td class="n clickable" data-wk="${w[0]}|desp">${eur0(t.desp)}</td><td class="n clickable" data-wk="${w[0]}|fp">${eur0(t.fp)}</td><td class="n clickable" data-wk="${w[0]}|fpl">${eur0(t.fpl)}</td><td class="n clickable" data-wk="${w[0]}|rec"><b>${eur0(t.rec)}</b></td></tr>`;
+    h+=`<tr class="total"><td style="white-space:nowrap">${rangCurt(w[0],sat)}</td><td class="n clickable" data-wk="${w[0]}|ef">${eur0(r2(t.ef-outSet))}${outSet?`<div class="muted" style="font-size:.7rem;font-weight:400">de ${eur0(t.ef)}</div>`:''}</td><td class="n clickable" data-wk="${w[0]}|tpv">${eur0(t.tpv)}</td><td class="n clickable" data-wk="${w[0]}|desp">${eur0(t.desp)}</td><td class="n clickable" data-wk="${w[0]}|fp">${eur0(t.fp)}</td><td class="n clickable" data-wk="${w[0]}|fpl">${eur0(t.fpl)}</td><td class="n clickable" data-wk="${w[0]}|rec"><b>${eur0(t.rec)}</b></td></tr>`;
     h+='</tbody></table></div>';
-    const sat=w[5], tc=Y().tanc[sat]||null;
-    h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:.88rem">
-      <span class="muted">Tancament ds. ${dataCA(sat)}${tc?' · caixa '+eur0(tc.caixa)+' · banc '+eur0(tc.banc):''}</span>
-      <button class="small" data-tancset="${sat}">${tc?'Edita':'Fer'}</button></div>`;
-    const obs=w.map(ds=>({ds,d:dia(ds)})).filter(x=>x.d&&x.d.obs);
-    if(obs.length){h+='<div style="margin-top:6px">'+obs.map(x=>'<div class="obsline"><b>'+dataCA(x.ds)+':</b> '+esc(x.d.obs)+'</div>').join('')+'</div>';}
+    if(obert){
+      h+=`<div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;font-size:.88rem">
+        <span class="muted">Tancament ds. ${dataCA(sat)}${tc?' · caixa '+eur0(tc.caixa)+' · banc '+eur0(tc.banc):''}</span>
+        <button class="small" data-tancset="${sat}">${tc?'Edita':'Fer'}</button></div>`;
+      const obs=w.map(ds=>({ds,d:dia(ds)})).filter(x=>x.d&&x.d.obs);
+      if(obs.length){h+='<div style="margin-top:6px">'+obs.map(x=>'<div class="obsline"><b>'+dataCA(x.ds)+':</b> '+esc(x.d.obs)+'</div>').join('')+'</div>';}
+    }
     h+='</div>';
   });
   const t=totalsMes(mes), dcc=despCCMes(mes), comMes=comissioMes(mes), comStored=comissioMesStored(mes), comAuto=comissioAutoMes(mes);
@@ -1165,6 +1194,11 @@ function bindDietari(){
     let m=ctx.mes+parseInt(b.dataset.nav); if(m<0)m=11; if(m>11)m=0; go(vista,{...ctx,mes:m});
   }));
   document.querySelectorAll('tr[data-dia]').forEach(tr=>tr.addEventListener('click',()=>go('avui',{data:tr.dataset.dia})));
+  document.querySelectorAll('[data-setm]').forEach(tr=>tr.addEventListener('click',()=>{
+    const k=tr.dataset.setm, o={...(ctx.setmObertes||{})};
+    if(o[k])delete o[k]; else o[k]=true;
+    ctx.setmObertes=o; render();
+  }));
   document.querySelectorAll('[data-tancset]').forEach(b=>b.addEventListener('click',e=>{e.stopPropagation();go('tancament',{tancSet:b.dataset.tancset,mes:ctx.mes});}));
   document.querySelectorAll('[data-dsub]').forEach(b=>b.addEventListener('click',()=>go('dietari',{...ctx,sub:b.dataset.dsub})));
   document.querySelectorAll('[data-editcom]').forEach(b=>b.addEventListener('click',()=>{
@@ -1341,8 +1375,10 @@ function vCC(){
   else{
     h+='<div class="card tight">'+movs.map(m=>{
       const imp=num(m.haber)?'<span class="imp pos num">+'+eur0(num(m.haber)).replace(/^/,'')+'</span>':'<span class="imp neg num">−'+eur0(num(m.debe))+'</span>';
+      const setmMoguda=ccSetmanaMoguda(m);
       return `<div class="item" data-cc="${m.id}"><div><div class="t">${m.concepte?`<span style="${PLNK}" data-ccconcresum="${esc(m.concepte)}">${esc(m.concepte)}</span>`:esc(ccCatNom(m))}</div>
         <div class="s">${dataCA(m.data)} · ${esc(ccCatNom(m))} <span class="chip ${m.estat.toLowerCase()}">${m.estat}</span></div>
+        ${setmMoguda?'<div class="s">↳ compta a la setmana '+setmMoguda+'</div>':''}
         ${m.obs?'<div class="s">'+esc(m.obs)+'</div>':''}</div>${imp}</div>`;
     }).join('')+'</div>';
     // pivot mensual
@@ -1367,7 +1403,11 @@ function bindCC(){
   bindResumLinks(document);
 }
 function formCC(m){
-  const nou=!m; m=m||{data:dataDefecte(),concepte:'',catId:'despcc',debe:'',haber:'',estat:'Pagat',obs:''};
+  // Un moviment nou surt ja com a ingrés de TPV, que és el que més s'apunta
+  const catTpv=ccCatByRole('tpv');
+  const nou=!m; m=m||(catTpv
+    ?{data:dataDefecte(),concepte:'TPV',catId:catTpv.id,debe:'',haber:'',estat:'Ingressat',obs:''}
+    :{data:dataDefecte(),concepte:'',catId:'despcc',debe:'',haber:'',estat:'Pagat',obs:''});
   modal(mTitle(nou?'Nou moviment':'Edita moviment')+`
     <label>Data</label><input type="date" id="c_data" value="${m.data}">
     <label>Concepte</label><input id="c_conc" value="${esc(m.concepte)}" placeholder="Gestoria, llum, abonament TPV…" list="dl_ccconc">
@@ -1380,7 +1420,7 @@ function formCC(m){
     <div id="c_tpvbox" style="${m.catId===(ccCatByRole('tpv')||{}).id?'':'display:none'}">
       <label>Dia de la venda al dietari (si l'ingrés arriba amb retard)</label>
       <input type="date" id="c_tpvdata" value="${m.tpvData||''}">
-      <p class="muted" style="margin:4px 0">Deixa-ho buit si l'ingrés és del mateix dia. Si el banc diposita amb retard, posa aquí la data de la venda perquè la recaptació quadri.</p>
+      <p class="muted" style="margin:4px 0">Deixa-ho buit si l'ingrés és del mateix dia. Si el banc diposita amb retard, posa aquí la data de la venda: la recaptació quadra i l'ingrés compta al mes de la setmana d'aquella venda, encara que el banc l'hagi fet el mes següent.</p>
     </div>
     <div class="row2">
       <div><label>Deure (surt)</label><input id="c_debe" class="num" inputmode="decimal" value="${m.debe??''}"></div>
@@ -1392,9 +1432,10 @@ function formCC(m){
   `,el=>{
     const tpvId=(ccCatByRole('tpv')||{}).id;
     el.querySelector('#c_cat').addEventListener('change',e=>{
-      const isTpv=e.target.value===tpvId;
+      const isTpv=e.target.value===tpvId, est=el.querySelector('#c_est');
       el.querySelector('#c_tpvbox').style.display=isTpv?'':'none';
-      if(isTpv)el.querySelector('#c_est').value='Ingressat';
+      if(isTpv)est.value='Ingressat';
+      else if(est.value==='Ingressat')est.value='Pagat';   // deixant el TPV, «Ingressat» no hi lliga
     });
     el.querySelector('#c_addcat').addEventListener('click',()=>{
       const nom=(prompt('Nom de la nova categoria:')||'').trim();
@@ -1413,7 +1454,8 @@ function formCC(m){
         srcFact:m.srcFact,srcPag:m.srcPag,   // manté el vincle amb el pagament que el va crear
         obs:el.querySelector('#c_obs').value.trim()};
       if(m.id){const i=Y().cc.findIndex(x=>x.id===m.id);Y().cc[i]=obj;}else Y().cc.push(obj);
-      save();tancaModal();go('cc',{mes:mesDeIso(data)});
+      // va al mes on el moviment compta de debò, que amb el TPV pot no ser el de la data del banc
+      save();tancaModal();go('cc',{mes:mesDeIso(ccDataMes(obj))});
     });
     const del=el.querySelector('#c_del');
     if(del)del.addEventListener('click',()=>{if(confirm('Eliminar aquest moviment?')){Y().cc=Y().cc.filter(x=>x.id!==m.id);save();tancaModal();render();}});

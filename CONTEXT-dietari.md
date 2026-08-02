@@ -132,6 +132,9 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
 
 1. **Setmanes Dl–Ds; cada setmana pertany al mes del seu DIMECRES** (regla de majoria de dies,
    com l'Excel del Jaume). `setmanesDelMes(any,mes)`, `isosDelMes(mes)`.
+   Al banc, **els ingressos de TPV segueixen aquesta mateixa regla** (`ccDataMes`): un ingrés del
+   3 d'agost que tanca la setmana del 27 de juliol compta al juliol, i el camp `tpvData` (dia de
+   la venda) mana sobre la data del banc. La resta de moviments compten pel mes de la seva data.
 2. **La comissió TPV es resta EXACTAMENT UN COP**, al total mensual (`totalsMes`). Les setmanes
    es queden amb el brut. Ja s'hi va anar i tornar; no la tornis a treure ni a duplicar.
 3. **Recaptació ≠ efectiu + TPV.** També hi sumen les línies de Fp/FpL/Despeses marcades `rec` i
@@ -152,9 +155,12 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
 
 ## 7. Estat de les funcionalitats (juliol 2026)
 
-- **Dietari**: entrada diària per línies, setmanes Dl–Ds, tancament setmanal, caixa d'efectiu amb
-  calculadora setmanal de sortides, comparació interanual (fletxa + % clicable) a Recaptació,
-  Despeses, Despeses c/c, Fp i FpL.
+- **Dietari**: entrada diària per línies, setmanes Dl–Ds **plegades** (només la fila de totals;
+  cliques la capçalera i es despleguen els dies, el tancament i les observacions — estat a
+  `ctx.setmObertes`), tancament setmanal, caixa d'efectiu amb calculadora setmanal de sortides,
+  comparació interanual (fletxa + % clicable) a Recaptació, Despeses, Despeses c/c, Fp i FpL.
+- **Compte corrent**: un moviment nou surt ja com a **TPV / concepte «TPV» / Ingressat** (és el
+  que més s'apunta); en canviar de categoria l'estat torna a «Pagat».
 - **Resum anual**: taula mensual, quatrimestres, recaptació per dia de la setmana, i el bloc
   comparatiu — selector de l'any de referència (val per a tot el bloc, `ctx.compAny`) → *rang de
   mesos lliure* (dos desplegables, `ctx.compDes`/`ctx.compFins`; el títol canvia a «Març–Maig»
