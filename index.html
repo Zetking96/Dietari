@@ -1766,6 +1766,26 @@ function compraData(type,r){
 }
 function compraLines(type){return (Y()[type]||[]).flatMap(r=>(r.productes||[]).map(p=>({producte:(p.producte||'').trim(),qty:num(p.qty),imp:num(p.imp),pv:p.pv,unitat:(p.unitat||'').trim(),prov:r.prov,data:compraData(type,r),invId:r.id})));}
 function prodNames(type){return [...new Set(compraLines(type).map(p=>p.producte).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'ca'));}
+/* ---- Benefici previst d'un conjunt de línies de compra ----
+   És el que trauries si venguessis tot el que has comprat al preu de venda apuntat, comparat amb
+   el cost SENSE IVA (la base), igual que el «% benefici» que ja surt a cada línia de compra.
+   Les línies sense preu de venda no hi compten: el seu cost queda a part per poder-ne avisar. */
+function beneficiLinies(ls){
+  let cost=0,venda=0,sensePv=0;
+  (ls||[]).forEach(l=>{
+    const q=num(l.qty),im=num(l.imp),pv=(l.pv==null||l.pv==='')?null:num(l.pv);
+    if(pv!=null&&q){cost+=im;venda+=q*pv;}else sensePv+=im;
+  });
+  return {cost:r2(cost),venda:r2(venda),ben:r2(venda-cost),pct:cost?100*(venda-cost)/cost:null,sensePv:r2(sensePv)};
+}
+/* Les dues cel·les de benefici (import i %) d'una fila de subtotals */
+function benCells(b){
+  if(!b||!b.cost)return '<td class="n muted">—</td><td class="n muted">—</td>';
+  const bo=b.ben>=0;
+  return `<td class="n ${bo?'pos':'neg'}">${eur0(b.ben)}</td><td class="n ${bo?'pos':'neg'}">${b.pct.toFixed(1)} %</td>`;
+}
+/* Avís si una part de les compres no té preu de venda apuntat i per tant no compta al benefici */
+function benNota(b){return b&&b.sensePv?' Hi ha '+eur0(b.sensePv)+' de compres sense preu de venda apuntat: no compten al benefici.':'';}
 const PLNK='color:var(--blau);cursor:pointer;text-decoration:underline';
 function vCompra(type){
   const cfg=COMPRA_CFG[type];
@@ -1847,11 +1867,17 @@ function vCompra(type){
     const thQ=mix?'':`<th class="n">${cfg.qtyLab}</th>`, thPk=mix?'':`<th class="n">€/${cfg.unitLab}</th>`;
     const tdQ=q=>mix?'':`<td class="n">${q.toLocaleString('ca-ES')}</td>`, tdPk=(im,q)=>mix?'':`<td class="n">${pk(im,q)}</td>`;
     const tq={};let senseQq=0,senseQi=0;
-    invs.forEach(r=>{const qn=quatri(compraData(type,r));if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraBase(r);}else{senseQq+=compraQty(r);senseQi+=compraBase(r);}});
-    h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><table><thead><tr><th>Període</th>${thQ}<th class="n">Import</th>${thPk}</tr></thead><tbody>`;
-    let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td>${tdQ(tq[qn].q)}<td class="n">${eur0(tq[qn].imp)}</td>${tdPk(tq[qn].imp,tq[qn].q)}</tr>`;}});
-    if(senseQq||senseQi){tq0+=senseQq;ti0+=senseQi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td>${tdQ(senseQq)}<td class="n">${eur0(senseQi)}</td>${tdPk(senseQi,senseQq)}</tr>`;}
-    h+=`<tr class="total"><td>Any</td>${tdQ(tq0)}<td class="n">${eur0(ti0)}</td>${tdPk(ti0,tq0)}</tr></tbody></table></div>`;
+    const linQ={},linSense=[],linTot=[];   // les línies de cada quatrimestre, per al benefici
+    invs.forEach(r=>{const qn=quatri(compraData(type,r)),ps=r.productes||[];
+      linTot.push(...ps);
+      if(qn!=null){tq[qn]=tq[qn]||{q:0,imp:0};tq[qn].q+=compraQty(r);tq[qn].imp+=compraBase(r);(linQ[qn]=linQ[qn]||[]).push(...ps);}
+      else{senseQq+=compraQty(r);senseQi+=compraBase(r);linSense.push(...ps);}});
+    const benTot=beneficiLinies(linTot);
+    h+=`<div class="card"><h3>Subtotals per quatrimestre</h3><div class="scrollx"><table><thead><tr><th>Període</th>${thQ}<th class="n">Import</th>${thPk}<th class="n">Benefici</th><th class="n">%</th></tr></thead><tbody>`;
+    let tq0=0,ti0=0;[0,1,2].forEach(qn=>{if(tq[qn]){tq0+=tq[qn].q;ti0+=tq[qn].imp;h+=`<tr><td>${QUATRIN[qn]}</td>${tdQ(tq[qn].q)}<td class="n">${eur0(tq[qn].imp)}</td>${tdPk(tq[qn].imp,tq[qn].q)}`+benCells(beneficiLinies(linQ[qn]))+'</tr>';}});
+    if(senseQq||senseQi){tq0+=senseQq;ti0+=senseQi;h+=`<tr class="muted"><td>Sense data (sense pagament ni data)</td>${tdQ(senseQq)}<td class="n">${eur0(senseQi)}</td>${tdPk(senseQi,senseQq)}`+benCells(beneficiLinies(linSense))+'</tr>';}
+    h+=`<tr class="total"><td>Any</td>${tdQ(tq0)}<td class="n">${eur0(ti0)}</td>${tdPk(ti0,tq0)}`+benCells(benTot)+'</tr></tbody></table></div>'+
+      `<p class="muted" style="margin:8px 2px 0">El benefici és el que trauries venent tot el que has comprat al preu de venda que hi has apuntat, comparat amb el cost sense IVA.${benNota(benTot)}</p></div>`;
     const tm=Array.from({length:12},()=>({q:0,imp:0}));
     let senseMq=0,senseMi=0;
     invs.forEach(r=>{const dd=compraData(type,r);if(dd){const m=parseInt(dd.slice(5,7))-1;if(m>=0&&m<12){tm[m].q+=compraQty(r);tm[m].imp+=compraBase(r);}}else{senseMq+=compraQty(r);senseMi+=compraBase(r);}});
@@ -2153,6 +2179,9 @@ const SEED_OLIVES=[
  {nom:'Xupadits',tipus:'Llaunes'}
 ];
 function olCat(){return Y().olivesCat.slice().sort((a,b)=>(a.ord==null?1e9:a.ord)-(b.ord==null?1e9:b.ord));}
+/* Preu de venda d'una compra d'olives: el de la compra si n'hi has posat un, si no el del catàleg */
+function olPvCat(prodId){const p=(Y().olivesCat||[]).find(x=>x.id===prodId);return p&&p.pv!=null&&p.pv!==''?num(p.pv):null;}
+function olPv(c){return c&&c.pv!=null&&c.pv!==''?num(c.pv):olPvCat(c&&c.prod);}
 function pkg(im,q){return q?eur(r2(num(im)/num(q)))+'/kg':'—';}
 function isoD(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
 function parseISO(s){const p=s.split('-').map(Number);return new Date(p[0],p[1]-1,p[2]);}
@@ -2192,16 +2221,23 @@ function vOlives(){
   }
   h+='</div>';
   const tq=[0,0,0],tqq=[0,0,0];let ta=0,taq=0;
-  Y().olivesCompres.forEach(c=>{if(!c.set)return;const q=Math.floor(olMes(c.set)/4);tq[q]+=num(c.imp);tqq[q]+=num(c.quant);ta+=num(c.imp);taq+=num(c.quant);});
+  const lq=[[],[],[]],lAny=[];   // línies amb preu de venda, per calcular el benefici
+  Y().olivesCompres.forEach(c=>{if(!c.set)return;const q=Math.floor(olMes(c.set)/4);
+    tq[q]+=num(c.imp);tqq[q]+=num(c.quant);ta+=num(c.imp);taq+=num(c.quant);
+    const l={qty:c.quant,imp:c.imp,pv:olPv(c)};lq[q].push(l);lAny.push(l);});
   const QN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
-  h+='<div class="card"><h3>Totals de l\'any</h3><table><thead><tr><th>Període</th><th class="n">Quant.</th><th class="n">Import</th><th class="n">€/kg</th></tr></thead><tbody>';
-  [0,1,2].forEach(q=>{h+=`<tr><td>${QN[q]}</td><td class="n">${tqq[q].toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q])}</td><td class="n">${pkg(tq[q],tqq[q])}</td></tr>`;});
-  h+=`<tr class="total"><td>Any ${S.activeYear}</td><td class="n">${taq.toLocaleString('ca-ES')}</td><td class="n">${eur0(ta)}</td><td class="n">${pkg(ta,taq)}</td></tr></tbody></table></div>`;
+  const benAny=beneficiLinies(lAny);
+  h+='<div class="card"><h3>Totals de l\'any</h3><div class="scrollx"><table><thead><tr><th>Període</th><th class="n">Quant.</th><th class="n">Import</th><th class="n">€/kg</th><th class="n">Benefici</th><th class="n">%</th></tr></thead><tbody>';
+  [0,1,2].forEach(q=>{h+=`<tr><td>${QN[q]}</td><td class="n">${tqq[q].toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[q])}</td><td class="n">${pkg(tq[q],tqq[q])}</td>`+benCells(beneficiLinies(lq[q]))+'</tr>';});
+  h+=`<tr class="total"><td>Any ${S.activeYear}</td><td class="n">${taq.toLocaleString('ca-ES')}</td><td class="n">${eur0(ta)}</td><td class="n">${pkg(ta,taq)}</td>`+benCells(benAny)+'</tr></tbody></table></div>'+
+    `<p class="muted" style="margin:8px 2px 0">El benefici és el que trauries venent tots els quilos comprats al preu de venda del catàleg (o al de la compra, si n'hi has posat un a part).${benNota(benAny)}</p></div>`;
   h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Graella anual</h3><button class="small" id="olGrid">${ctx.olGrid?'Amaga':'Mostra'}</button></div>`;
   if(ctx.olGrid)h+=olGraellaHTML();
   h+='</div>';
-  h+='<div class="card"><h3>Catàleg ('+cat.length+' tipus)</h3><div class="scrollx"><table><thead><tr><th>Nom</th><th>Tipus</th></tr></thead><tbody>'+
-    cat.map(p=>`<tr class="clickable" data-olcat="${p.id}"><td>${esc(p.nom)}</td><td>${esc(p.tipus)}</td></tr>`).join('')+'</tbody></table></div>'+
+  const senseP=cat.filter(p=>p.pv==null||p.pv==='').length;
+  h+='<div class="card"><h3>Catàleg ('+cat.length+' tipus)</h3><div class="scrollx"><table><thead><tr><th>Nom</th><th>Tipus</th><th class="n">Venda €/kg</th></tr></thead><tbody>'+
+    cat.map(p=>`<tr class="clickable" data-olcat="${p.id}"><td>${esc(p.nom)}</td><td>${esc(p.tipus)}</td><td class="n">${p.pv!=null&&p.pv!==''?num(p.pv).toFixed(2):'<span class="muted">—</span>'}</td></tr>`).join('')+'</tbody></table></div>'+
+    (senseP?`<p class="muted" style="margin:8px 2px 0">${senseP} ${senseP===1?'tipus no té':'tipus no tenen'} preu de venda: clica-hi per posar-l’hi i que compti al benefici.</p>`:'')+
     '<button id="addCat" style="width:100%;margin-top:10px">Afegeix tipus al catàleg</button></div>';
   return h;
 }
@@ -2227,11 +2263,14 @@ function formOlivaCat(p){
   modal(mTitle(nou?'Nou tipus':'Edita tipus')+`
     <label>Nom</label><input id="o_nom" value="${esc(p.nom)}">
     <label>Tipus</label><select id="o_tipus">${['Granel','Llaunes'].map(t=>`<option ${t===p.tipus?'selected':''}>${t}</option>`).join('')}</select>
+    <label>Preu de venda (€/kg)</label><input id="o_pv" class="num" inputmode="decimal" value="${p.pv??''}">
+    <p class="muted" style="margin:4px 0">És el que fas servir per calcular el benefici dels totals de l'any. Deixa-ho buit si encara no el saps: aquesta oliva no comptarà al benefici.</p>
     <button class="primary" id="o_desa">Desa</button>
     ${nou?'':'<button class="danger" id="o_del" style="width:100%;margin-top:8px">Elimina</button>'}
   `,el=>{
     el.querySelector('#o_desa').addEventListener('click',()=>{
-      const obj={id:p.id||uid(),nom:el.querySelector('#o_nom').value.trim(),tipus:el.querySelector('#o_tipus').value,ord:p.ord};
+      const obj={id:p.id||uid(),nom:el.querySelector('#o_nom').value.trim(),tipus:el.querySelector('#o_tipus').value,
+        pv:numOrNull(el.querySelector('#o_pv').value),ord:p.ord};
       if(!obj.nom){alert('Falta el nom.');return;}
       if(obj.ord==null)obj.ord=Y().olivesCat.reduce((m,x)=>Math.max(m,x.ord==null?-1:x.ord),-1)+1;
       if(p.id){const i=Y().olivesCat.findIndex(x=>x.id===p.id);Y().olivesCat[i]=obj;}else Y().olivesCat.push(obj);
@@ -2255,6 +2294,9 @@ function formOlivaCompra(c){
     </div>
     <label>Cost (€)</label><input id="oc_imp" class="num" inputmode="decimal" value="${c.imp??''}">
     <p class="muted" style="margin:6px 0">Preu calculat: <b id="oc_pkg">${pkg(c.imp,c.quant)}</b></p>
+    <label>Preu de venda d'aquesta compra (€/kg)</label>
+    <input id="oc_pv" class="num" inputmode="decimal" value="${c.pv??''}" placeholder="${olPvCat(c.prod)!=null?'del catàleg: '+olPvCat(c.prod):'sense preu al catàleg'}">
+    <p class="muted" style="margin:4px 0">Deixa-ho buit i es fa servir el preu del catàleg. Omple-ho només si aquella setmana el vas vendre a un altre preu.</p>
     <p class="muted" style="margin:4px 0">La categoria Fp/FpL de cada oliva es marca a la graella setmanal.</p>
     <button class="primary" id="oc_desa">Desa</button>
     ${nou?'':'<button class="danger" id="oc_del" style="width:100%;margin-top:8px">Elimina</button>'}
@@ -2264,7 +2306,8 @@ function formOlivaCompra(c){
     el.querySelector('#oc_desa').addEventListener('click',()=>{
       const setv=el.querySelector('#oc_set').value;if(!setv){alert('Falta la setmana.');return;}
       const obj={id:c.id||uid(),prod:el.querySelector('#oc_prod').value,set:mondayISO(parseISO(setv)),
-        quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value),bloc:c.bloc||''};
+        quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value),
+        pv:numOrNull(el.querySelector('#oc_pv').value),bloc:c.bloc||''};
       if(c.id){const i=Y().olivesCompres.findIndex(x=>x.id===c.id);Y().olivesCompres[i]=obj;}else Y().olivesCompres.push(obj);
       save();tancaModal();go('compres',{tab:'olives',setOl:obj.set});
     });

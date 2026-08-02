@@ -171,6 +171,11 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
 - **Compres**: Bacallà · Olives · Conserva · Altres (noms editables a Config). IVA per producte,
   import final de factura i descompte. «Altres» té unitat lliure per producte i barreja factures
   amb el que s'apunta al dia a dia.
+  **Benefici previst** (`beneficiLinies`, `benCells`) als subtotals per quatrimestre de Bacallà i
+  Conserva i als «Totals de l'any» d'Olives: `Σ qty×pv − Σ import`, contra el cost **sense IVA**.
+  Les línies sense preu de venda no hi compten i el peu de taula diu quants € queden fora.
+  Les olives guarden el preu de venda al **catàleg** (`olivesCat[].pv`, €/kg) amb excepció
+  opcional per compra (`olivesCompres[].pv`); `olPv()` resol quin mana.
 - **Factures**: pagaments múltiples amb forma de pagament i apunt al banc opcional; conversió de
   factura normal a compra.
 - **Seguretat**: auditada i tancada (RLS, bucket per carpeta d'usuari, registres tancats,
