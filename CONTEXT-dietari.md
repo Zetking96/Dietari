@@ -91,8 +91,15 @@ número. Les seccions estan marcades amb `/* ===== NOM ===== */`:
 `VISTA: CONFIGURACIÓ` · `ARRENCADA`
 
 **Patró de vistes**: cada pantalla té `vXxx()` que retorna HTML i `bindXxx()` que hi lliga els
-events. `render()` pinta `V[vista]()` dins `#view` i crida `bindVista()`. `go(vista, ctx)` navega.
+events. `render()` pinta `VISTES[vista]()` dins `#view` i crida `bindVista()`. `go(vista, ctx)` navega.
 `ctx` és l'estat de la vista (mes, subpestanya, filtres…) i es perd en canviar d'any.
+
+**On eres**: `render()` **manté l'alçada de scroll** per defecte; només puja a dalt amb
+`render({top:true})`, i `go()` ho fa sol quan canvies de vista (o si cliques una pestanya del
+menú). Com que desar refà la pàgina sencera, sense això cada canvi et tirava a dalt de tot.
+La posició (`vista` + `ctx` + scroll) es desa a `sessionStorage['dietari.pos']` a cada `render()`
+i mentre fas scroll; `restauraPos()` la torna a posar des de `iniciaApp()`. És sessionStorage a
+posta: aguanta els refrescos, però un dia nou tornes a «Avui».
 
 **Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
 `eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`

@@ -282,7 +282,8 @@ async function iniciaApp(){
   showLogin(false);
   await load();
   migra();
-  pintaAnys();render();
+  pintaAnys();
+  if(!restauraPos())render();   // torna on eres abans de refrescar
 }
 async function arrenca(){
   const {data:{session}}=await sb.auth.getSession();
@@ -301,7 +302,7 @@ document.getElementById('loginPass').addEventListener('keydown',e=>{ if(e.key===
 document.getElementById('logoutBtn').addEventListener('click',async()=>{
   if(savePending){clearTimeout(saveTimer);await pushRemote();}
   await sb.auth.signOut();
-  localStorage.removeItem(KEY); localStorage.removeItem(KEY+'.ts');
+  localStorage.removeItem(KEY); localStorage.removeItem(KEY+'.ts'); esborraPos();
   location.reload();
 });
 
@@ -687,21 +688,48 @@ function ingresTpvBancMes(mes){const c=ccCatByRole('tpv');if(!c)return 0;return 
 /* ================= NAVEGACIÓ ================= */
 let vista='avui'; let ctx={};
 const $=s=>document.querySelector(s);
-function go(v,c){vista=v;ctx=c||{};render();}
+const VISTES={avui:vAvui,dietari:vDietari,tancament:vTancament,cc:vCC,factures:vFactures,mes:vMes,compres:vCompres,tresoreria:vTresoreria,resumAnual:vResumAnual,copia:vCopia,config:vConfig};
+/* ---- On eres l'última vegada ----
+   Desar qualsevol cosa refà la pàgina sencera, i abans això et deixava sempre a dalt de tot.
+   Ara la posició es guarda a sessionStorage: aguanta els refrescos de la pestanya, però obrint
+   l'app un altre dia tornes a «Avui», que és per on toca començar. */
+const POS_KEY='dietari.pos';
+function desaPos(){
+  try{sessionStorage.setItem(POS_KEY,JSON.stringify({vista:vista,ctx:ctx,y:window.scrollY}));}catch(e){}
+}
+function esborraPos(){try{sessionStorage.removeItem(POS_KEY);}catch(e){}}
+function restauraPos(){
+  let p=null;
+  try{p=JSON.parse(sessionStorage.getItem(POS_KEY)||'null');}catch(e){}
+  if(!p||!p.vista||!VISTES[p.vista])return false;
+  vista=p.vista; ctx=(p.ctx&&typeof p.ctx==='object')?p.ctx:{};
+  render({y:num(p.y)});
+  return true;
+}
+let posTimer=null;
+window.addEventListener('scroll',()=>{clearTimeout(posTimer);posTimer=setTimeout(desaPos,200);},{passive:true});
+/* Torna a la mateixa alçada, sense passar-se si la pàgina nova és més curta */
+function scrollA(y){
+  const max=Math.max(0,document.documentElement.scrollHeight-window.innerHeight);
+  window.scrollTo(0,Math.max(0,Math.min(y||0,max)));
+}
+/* opts.top: puja a dalt de tot. opts.y: hi va a una alçada concreta. Sense res, es queda on eres. */
+function go(v,c,opts){const altra=v!==vista;vista=v;ctx=c||{};render(opts||(altra?{top:true}:null));}
 document.getElementById('nav').addEventListener('click',e=>{
-  const b=e.target.closest('button'); if(!b)return; go(b.dataset.v);
+  const b=e.target.closest('button'); if(!b)return; go(b.dataset.v,null,{top:true});
 });
-function render(){
+function render(opts){
+  const o=opts||{}, y=o.y!=null?o.y:window.scrollY;
   document.querySelectorAll('#nav button').forEach(b=>{
     const grup={avui:'avui',dietari:'dietari',tancament:'dietari',cc:'cc',factures:'factures',compres:'compres',mes:'mes',tresoreria:'mes',resumAnual:'mes',copia:'mes',config:'mes'}[vista];
     b.classList.toggle('on',b.dataset.v===grup);
   });
   const fab=$('#fab');
   fab.style.display=(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.sub!=='inventari'))?'block':'none';
-  const V={avui:vAvui,dietari:vDietari,tancament:vTancament,cc:vCC,factures:vFactures,mes:vMes,compres:vCompres,tresoreria:vTresoreria,resumAnual:vResumAnual,copia:vCopia,config:vConfig};
-  $('#view').innerHTML=V[vista]();
+  $('#view').innerHTML=VISTES[vista]();
   bindVista();
-  window.scrollTo(0,0);
+  scrollA(o.top?0:y);
+  desaPos();
 }
 $('#fab').addEventListener('click',()=>{
   if(vista==='cc')formCC();
