@@ -743,14 +743,22 @@ $('#fab').addEventListener('click',()=>{
 });
 
 /* ================= MODAL ================= */
+/* On era la pàgina abans d'obrir el modal. Cal desar-ho perquè al mòbil, en sortir el teclat,
+   el navegador desplaça la pàgina del darrere; sense això, en tancar apareixies a dalt de tot.
+   Si un modal en crida un altre, es manté la posició del primer. */
+let posAbansModal=null;
 function modal(html,onMount){
+  if(posAbansModal==null)posAbansModal=window.scrollY;
   const r=$('#modalRoot');
   r.innerHTML='<div class="modal-bg"><div class="modal">'+html+'</div></div>';
   r.querySelector('.modal-bg').addEventListener('click',e=>{if(e.target.classList.contains('modal-bg'))tancaModal();});
   const x=r.querySelector('.x'); if(x)x.addEventListener('click',tancaModal);
   if(onMount)onMount(r.querySelector('.modal'));
 }
-function tancaModal(){$('#modalRoot').innerHTML='';}
+function tancaModal(){
+  $('#modalRoot').innerHTML='';
+  if(posAbansModal!=null){const y=posAbansModal;posAbansModal=null;scrollA(y);}
+}
 function mTitle(t){return '<h2>'+esc(t)+'<button class="x" aria-label="Tanca">×</button></h2>';}
 
 /* ================= VISTA: AVUI (entrada diària) ================= */

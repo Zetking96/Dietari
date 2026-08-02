@@ -100,6 +100,8 @@ menú). Com que desar refà la pàgina sencera, sense això cada canvi et tirava
 La posició (`vista` + `ctx` + scroll) es desa a `sessionStorage['dietari.pos']` a cada `render()`
 i mentre fas scroll; `restauraPos()` la torna a posar des de `iniciaApp()`. És sessionStorage a
 posta: aguanta els refrescos, però un dia nou tornes a «Avui».
+`modal()` desa l'alçada d'abans d'obrir-se i `tancaModal()` la torna a posar: al mòbil el teclat
+desplaça la pàgina del darrere, i sense això en desar des d'un formulari sorties a dalt de tot.
 
 **Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
 `eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`
