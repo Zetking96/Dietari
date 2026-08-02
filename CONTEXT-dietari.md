@@ -160,7 +160,9 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
   `ctx.setmObertes`), tancament setmanal, caixa d'efectiu amb calculadora setmanal de sortides,
   comparació interanual (fletxa + % clicable) a Recaptació, Despeses, Despeses c/c, Fp i FpL.
 - **Compte corrent**: un moviment nou surt ja com a **TPV / concepte «TPV» / Ingressat** (és el
-  que més s'apunta); en canviar de categoria l'estat torna a «Pagat».
+  que més s'apunta); en canviar de categoria l'estat torna a «Pagat». Al *Resum del mes per
+  categoria*, cada fila és clicable i obre el desglossament (`ccCatResumHTML`): totals, taula per
+  concepte i tots els moviments, cadascun clicable per editar-lo.
 - **Resum anual**: taula mensual, quatrimestres, recaptació per dia de la setmana, i el bloc
   comparatiu — selector de l'any de referència (val per a tot el bloc, `ctx.compAny`) → *rang de
   mesos lliure* (dos desplegables, `ctx.compDes`/`ctx.compFins`; el títol canvia a «Març–Maig»

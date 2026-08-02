@@ -1366,6 +1366,42 @@ function obreCCConcepteResum(nom){modal(mTitle(nom)+ccConcepteResumHTML(nom),el=
   bindResumLinks(el);
   el.querySelectorAll('[data-cc]').forEach(tr=>tr.addEventListener('click',()=>{tancaModal();formCC(Y().cc.find(x=>x.id===tr.dataset.cc));}));
 });}
+/* D'on surt una fila del resum del mes per categoria: els moviments que l'han feta */
+function ccCatResumHTML(catId,mes){
+  const movs=ccDelMes(mes).filter(m=>(m.catId||'')===catId&&m.estat!=='Cancelat').sort((a,b)=>a.data<b.data?-1:1);
+  const deure=movs.reduce((s,m)=>s+num(m.debe),0), haver=movs.reduce((s,m)=>s+num(m.haber),0);
+  let h=`<div class="recline"><span class="l">Deure (surt)</span><span class="v num">${eur0(deure)}</span></div>`;
+  h+=`<div class="recline"><span class="l">Haver (entra)</span><span class="v num">${eur0(haver)}</span></div>`;
+  h+=`<div class="recline"><span class="l">Saldo</span><span class="v num ${haver-deure>=0?'pos':'neg'}">${eur0(r2(haver-deure))}</span></div>`;
+  // desglossament per concepte: només si la categoria en barreja més d'un
+  const perConc={};
+  movs.forEach(m=>{const c=(m.concepte||'').trim()||'(sense concepte)';
+    perConc[c]=perConc[c]||{d:0,h:0,n:0};perConc[c].d+=num(m.debe);perConc[c].h+=num(m.haber);perConc[c].n++;});
+  const concs=Object.keys(perConc);
+  if(concs.length>1){
+    h+='<h3>Per concepte</h3><div class="scrollx"><table><thead><tr><th>Concepte</th><th class="n">Mov.</th><th class="n">Deure</th><th class="n">Haver</th></tr></thead><tbody>';
+    concs.slice().sort((a,b)=>(perConc[b].d+perConc[b].h)-(perConc[a].d+perConc[a].h)).forEach(c=>{
+      h+=`<tr><td>${esc(c)}</td><td class="n">${perConc[c].n}</td><td class="n">${perConc[c].d?eur0(perConc[c].d):''}</td><td class="n">${perConc[c].h?eur0(perConc[c].h):''}</td></tr>`;});
+    h+='</tbody></table></div>';
+  }
+  h+='<h3>Moviments ('+movs.length+')</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Concepte</th><th class="n">Deure</th><th class="n">Haver</th></tr></thead><tbody>';
+  movs.forEach(m=>{
+    const setm=ccSetmanaMoguda(m);
+    h+=`<tr class="clickable" data-cc="${m.id}"><td>${dataCA(m.data)}${setm?`<div class="muted" style="font-size:.72rem;font-weight:400">setm. ${setm}</div>`:''}</td>`+
+      `<td>${esc(m.concepte||'—')}</td><td class="n">${m.debe?eur0(num(m.debe)):''}</td><td class="n">${m.haber?eur0(num(m.haber)):''}</td></tr>`;});
+  h+=`<tr class="total"><td colspan="2">Total</td><td class="n">${deure?eur0(deure):''}</td><td class="n">${haver?eur0(haver):''}</td></tr>`;
+  h+='</tbody></table></div>';
+  h+='<p class="muted">Clica un moviment per obrir-lo.'+
+    (movs.some(m=>ccSetmanaMoguda(m))?' Els que porten «setm.» compten en aquest mes per la setmana de la venda, no per la data del banc.':'')+'</p>';
+  return h;
+}
+function obreCCCatResum(catId,mes){
+  const c=ccCat(catId);
+  modal(mTitle((c?c.nom:'Sense categoria')+' · '+MESOS[mes]+' '+S.activeYear)+ccCatResumHTML(catId,mes),el=>{
+    bindResumLinks(el);
+    el.querySelectorAll('[data-cc]').forEach(tr=>tr.addEventListener('click',()=>{tancaModal();formCC(Y().cc.find(x=>x.id===tr.dataset.cc));}));
+  });
+}
 function vCC(){
   const mes=ctx.mes??(new Date().getFullYear()==S.activeYear?new Date().getMonth():0);
   ctx.mes=mes;
@@ -1383,11 +1419,11 @@ function vCC(){
     }).join('')+'</div>';
     // pivot mensual
     const piv={};
-    movs.filter(m=>m.estat!=='Cancelat').forEach(m=>{const cn=ccCatNom(m);piv[cn]=piv[cn]||{d:0,h:0};piv[cn].d+=num(m.debe);piv[cn].h+=num(m.haber);});
+    movs.filter(m=>m.estat!=='Cancelat').forEach(m=>{const k=m.catId||'';piv[k]=piv[k]||{nom:ccCatNom(m),d:0,h:0};piv[k].d+=num(m.debe);piv[k].h+=num(m.haber);});
     let td=0,th=0;
-    h+='<div class="card"><h3>Resum del mes per categoria</h3><table><thead><tr><th>Categoria</th><th class="n">Deure</th><th class="n">Haver</th></tr></thead><tbody>';
-    Object.keys(piv).forEach(c=>{td+=piv[c].d;th+=piv[c].h;
-      h+=`<tr><td>${esc(c)}</td><td class="n">${piv[c].d?eur0(piv[c].d):''}</td><td class="n">${piv[c].h?eur0(piv[c].h):''}</td></tr>`;});
+    h+='<div class="card"><h3>Resum del mes per categoria <span class="muted" style="font-weight:400;font-size:.8rem">(clica per veure d\'on surt)</span></h3><table><thead><tr><th>Categoria</th><th class="n">Deure</th><th class="n">Haver</th></tr></thead><tbody>';
+    Object.keys(piv).forEach(k=>{td+=piv[k].d;th+=piv[k].h;
+      h+=`<tr class="clickable" data-ccresum="${esc(k)}"><td>${esc(piv[k].nom)}</td><td class="n">${piv[k].d?eur0(piv[k].d):''}</td><td class="n">${piv[k].h?eur0(piv[k].h):''}</td></tr>`;});
     h+=`<tr class="total"><td>Total</td><td class="n">${eur0(td)}</td><td class="n">${eur0(th)}</td></tr></tbody></table>
       <div class="muted" style="margin-top:6px">Saldo del mes: <b class="num ${th-td>=0?'pos':'neg'}">${eur0(th-td)}</b></div></div>`;
   }
@@ -1400,6 +1436,7 @@ function bindCC(){
   document.querySelectorAll('[data-cc]').forEach(el=>el.addEventListener('click',()=>{
     formCC(Y().cc.find(x=>x.id===el.dataset.cc));
   }));
+  document.querySelectorAll('[data-ccresum]').forEach(tr=>tr.addEventListener('click',()=>obreCCCatResum(tr.dataset.ccresum,ctx.mes)));
   bindResumLinks(document);
 }
 function formCC(m){
