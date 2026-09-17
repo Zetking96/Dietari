@@ -23,6 +23,12 @@ build ni frameworks. SheetJS incrustat per exportar a Excel; Supabase per autent
 | | https://dietari.netlify.app (Netlify, pausat per crèdits) |
 | Desplegament | **`git push` i ja està** — es publica sol en 1-2 min. No cal pujar res a mà. |
 
+**Si el Jaume diu «no s'ha actualitzat»**: comprova primer què hi ha publicat de debò, no et refiïs
+del push (`curl -s "https://zetking96.github.io/Dietari/?t=$(date +%s)" | grep -c "marca del canvi"`).
+GitHub Pages serveix l'HTML amb `max-age=600` i el CDN triga un parell de minuts. El `sw.js`
+demana la pàgina amb `cache:'reload'` justament per això, i quan s'activa un service worker nou
+la pàgina es recarrega sola (`recarregaSiCal`, mai amb un modal obert ni amb desats pendents).
+
 ---
 
 ## 2. El cicle de treball
