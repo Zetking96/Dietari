@@ -1270,6 +1270,7 @@ function bindDietari(){
     let m=ctx.mes+parseInt(b.dataset.nav); if(m<0)m=11; if(m>11)m=0; go(vista,{...ctx,mes:m});
   }));
   document.querySelectorAll('tr[data-dia]').forEach(tr=>tr.addEventListener('click',()=>go('avui',{data:tr.dataset.dia})));
+  document.querySelectorAll('[data-forarang]').forEach(x=>x.addEventListener('click',()=>obreForaDelRang(parseInt(x.dataset.forarang),11)));
   document.querySelectorAll('[data-setmmes]').forEach(sel=>sel.addEventListener('change',()=>{
     const mon=sel.dataset.setmmes, v=parseInt(sel.value), nat=mesNaturalSetmana(mon);
     if(!Y().setmMes)Y().setmMes={};
@@ -2587,6 +2588,68 @@ function titolRangComp(mDes,mFins){
   if(mDes===0)return "El que portem d'any";
   return mDes===mFins?capMes(mDes):capMes(mDes)+'–'+capMes(mFins);
 }
+/* ---- Què hi ha apuntat més enllà de «El que portem fins avui» ----
+   Normalment són factures amb un taló datat més endavant: ja compten al mes on cau el pagament,
+   i per això el total de l'any surt més gran que el que portem fet. Aquí es veu peça per peça. */
+function foraDelRangItems(mDes,mFins){
+  const out=[];
+  for(let m=mDes;m<=mFins;m++){
+    isosDelMes(m).forEach(ds=>{
+      const d=dia(ds);
+      if(d){
+        if(num(d.ef))out.push({ds:ds,tipus:'Dia',desc:'Efectiu',cat:'Recaptació',imp:num(d.ef)});
+        if(num(d.tpv))out.push({ds:ds,tipus:'Dia',desc:'TPV',cat:'Recaptació',imp:num(d.tpv)});
+        [['fpLines','Fp'],['fplLines','FpL'],['despLines','Despeses']].forEach(([k,cat])=>{
+          (d[k]||[]).forEach(l=>{if(num(l.imp))out.push({ds:ds,tipus:'Línia del dia',desc:l.c||'—',cat:cat,imp:num(l.imp)});});
+        });
+      }
+      factPagsDia(ds).forEach(x=>{
+        const b=factBlock(x.f);
+        out.push({ds:ds,tipus:'Factura',cat:b==='fp'?'Fp':b==='fpl'?'FpL':'Despeses',imp:num(x.imp),factId:x.f.id,
+          desc:(x.f.empresa||'(sense proveïdor)')+(x.f.concepte?' · '+x.f.concepte:'')+(x.talo?' · taló '+x.talo:'')});
+      });
+      (Y().olivesCompres||[]).filter(c=>c.bloc&&c.set&&olDissabte(c.set)===ds).forEach(c=>{
+        const p=(Y().olivesCat||[]).find(x=>x.id===c.prod);
+        out.push({ds:ds,tipus:'Olives',desc:p?p.nom:'Olives',cat:c.bloc==='fp'?'Fp':'FpL',imp:num(c.imp)});
+      });
+    });
+    // les despeses de compte corrent van per mes, no per dia
+    const cd=ccCatByRole('despcc');
+    if(cd)ccDelMes(m).filter(x=>x.catId===cd.id&&x.estat!=='Cancelat'&&num(x.debe)).forEach(x=>{
+      out.push({ds:x.data,tipus:'Banc',desc:x.concepte||ccCatNom(x),cat:'Despeses c/c',imp:num(x.debe),ccId:x.id});
+    });
+  }
+  return out.sort((a,b)=>(a.ds||'')<(b.ds||'')?-1:1);
+}
+function foraDelRangHTML(mDes,mFins){
+  let h='<div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">Recapt.</th><th class="n">Desp.</th><th class="n">Desp. c/c</th><th class="n">Fp</th><th class="n">FpL</th></tr></thead><tbody>';
+  const tot={rec:0,desp:0,dcc:0,fp:0,fpl:0};
+  for(let m=mDes;m<=mFins;m++){
+    const o=acumulaDetall(S.activeYear,m,m); if(!o||(!o.rec&&!o.desp&&!o.dcc&&!o.fp&&!o.fpl))continue;
+    Object.keys(tot).forEach(k=>tot[k]+=o[k]);
+    h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${o.rec?eur0(o.rec):''}</td><td class="n">${o.desp?eur0(o.desp):''}</td><td class="n">${o.dcc?eur0(o.dcc):''}</td><td class="n">${o.fp?eur0(o.fp):''}</td><td class="n">${o.fpl?eur0(o.fpl):''}</td></tr>`;
+  }
+  h+=`<tr class="total"><td>Total</td><td class="n">${eur0(tot.rec)}</td><td class="n">${eur0(tot.desp)}</td><td class="n">${eur0(tot.dcc)}</td><td class="n">${eur0(tot.fp)}</td><td class="n">${eur0(tot.fpl)}</td></tr>`;
+  h+='</tbody></table></div>';
+  const items=foraDelRangItems(mDes,mFins);
+  if(!items.length)return h+'<p class="muted">No hi ha res apuntat en aquests mesos.</p>';
+  h+='<h3>D\'on surt ('+items.length+')</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Què és</th><th>Categoria</th><th class="n">Import</th></tr></thead><tbody>';
+  items.forEach(it=>{
+    const clic=it.factId?` class="clickable" data-forafact="${esc(it.factId)}"`:(it.ccId?` class="clickable" data-foracc="${esc(it.ccId)}"`:'');
+    h+=`<tr${clic}><td style="white-space:nowrap">${it.ds?dataCA(it.ds):'—'}</td><td>${esc(it.tipus)} · ${esc(it.desc)}</td><td>${esc(it.cat)}</td><td class="n">${eur0(it.imp)}</td></tr>`;
+  });
+  h+='</tbody></table></div>';
+  h+='<p class="muted">Les factures i els moviments del banc s\'obren clicant-hi. Un taló amb data d\'aquests mesos ja compta al Fp/FpL d\'aquell dia, encara que la factura encara surti com a pendent: és el que fa que el total de l\'any sigui més gran que el que portem fins avui.</p>';
+  return h;
+}
+function obreForaDelRang(mDes,mFins){
+  modal(mTitle('Apuntat '+delMes(mDes)+' endavant · '+S.activeYear)+foraDelRangHTML(mDes,mFins),el=>{
+    el.querySelectorAll('[data-forafact]').forEach(tr=>tr.addEventListener('click',()=>{
+      const f=Y().factures.find(x=>x.id===tr.dataset.forafact); tancaModal(); if(f)formFactura(f);}));
+    el.querySelectorAll('[data-foracc]').forEach(tr=>tr.addEventListener('click',()=>{
+      const m=Y().cc.find(x=>x.id===tr.dataset.foracc); tancaModal(); if(m)formCC(m);}));
+  });
+}
 function comparativaAnualHTML(){
   const anyAct=S.activeYear, anyComp=anyComparacio(anyAct);
   const ara=new Date(), enCursAra=String(ara.getFullYear())===anyAct;
@@ -2655,7 +2718,7 @@ function comparativaAnualHTML(){
     h+='</tbody></table></div>';
     h+=`<p class="muted" style="margin:8px 2px 0">La comissió de TPV ja va descomptada de la recaptació de cada mes: aquí surt a part només per saber quant és.`+
       (enCursAra&&ara.getMonth()===mAvui?` Compte: el ${MESOS[mAvui]} de ${anyAct} encara no ha acabat i a l'altra banda hi ha el mes sencer de ${anyComp}.`:'')+
-      (foraTot?` ${delMes(mAvui+1).charAt(0).toUpperCase()+delMes(mAvui+1).slice(1)} endavant tens ${eur0(foraTot)} ja apuntats (factures amb data posterior i coses així). Aquí no hi compten, però sí a la columna «Any» de la taula de dalt: per això no quadren.`:'')+'</p>';
+      (foraTot?` ${delMes(mAvui+1).charAt(0).toUpperCase()+delMes(mAvui+1).slice(1)} endavant tens <span style="${PLNK}" data-forarang="${mAvui+1}">${eur0(foraTot)}</span> ja apuntats (factures amb data posterior i coses així). Aquí no hi compten, però sí a la columna «Any» de la taula de dalt: per això no quadren.`:'')+'</p>';
     h+='</div>';
   }
   // --- 4. Tendència de tots els anys ---
@@ -2981,7 +3044,8 @@ function pintaAnys(){
 $('#anySel').addEventListener('change',e=>{S.activeYear=e.target.value;save();go('avui');});
 function bindVista(){
   ({avui:bindAvui,dietari:bindDietari,tancament:bindTancament,cc:bindCC,factures:bindFactures,
-    mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig}[vista]||(()=>{}))();
+    mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig,
+    resumAnual:bindDietari}[vista]||(()=>{}))();
 }
 arrenca();
 /* ---- Versions noves ----

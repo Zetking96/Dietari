@@ -191,7 +191,9 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
   `ultimMesAmbDades(any, fins)` accepta un tope: al bloc comparatiu es crida amb el mes d'avui,
   perquè una factura ja apuntada amb data futura no faci que «el que portem d'any» inclogui mesos
   que encara no han arribat. El peu de la targeta avisa de quants € queden fora del rang, que és
-  el que fa que no quadri amb la columna «Any» de la taula mensual.
+  el que fa que no quadri amb la columna «Any» de la taula mensual. Aquell import és clicable
+  (`foraDelRangHTML`): obre el detall mes a mes i la llista de peces (factures amb taló datat més
+  endavant, moviments del banc, olives…), cadascuna clicable per obrir-la.
   (amb columna «vs [any de referència]» a més de la cadena «vs any ant.»).
 - **Compres**: Bacallà · Olives · Conserva · Altres (noms editables a Config). IVA per producte,
   import final de factura i descompte. «Altres» té unitat lliure per producte i barreja factures
