@@ -118,7 +118,7 @@ Y() = S.years[S.activeYear]
 ```
 
 `anyBuit()` → `{dies, tanc, cc, factures, bacalla, conserva, altres, olivesCat, olivesCompres,
-comTpvMes, caixaMes, caixaSet, factorConserva}`
+comTpvMes, caixaMes, caixaSet, setmMes, factorConserva}`
 
 | Cosa | Forma |
 |---|---|
@@ -145,7 +145,7 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
    `Y().setmMes[dilluns]=mes` i `mesSetmanaEf(dilluns,any)` mana a tot arreu (totals, caixa,
    comparacions, tancament i el mes dels ingressos de TPV al banc). Només s'accepta ±1 mes: així
    cap setmana no es perd ni apareix a dos mesos. Es tria al desplegable de la setmana desplegada.
-   Al banc, **els ingressos de TPV segueixen aquesta mateixa regla** (`ccDataMes`): un ingrés del
+   Al banc, **els ingressos de TPV segueixen aquesta mateixa regla** (`ccAnyMesDe`): un ingrés del
    3 d'agost que tanca la setmana del 27 de juliol compta al juliol, i el camp `tpvData` (dia de
    la venda) mana sobre la data del banc. La resta de moviments compten pel mes de la seva data.
 2. **La comissió TPV es resta EXACTAMENT UN COP**, al total mensual (`totalsMes`). Les setmanes
