@@ -109,6 +109,13 @@ posta: aguanta els refrescos, però un dia nou tornes a «Avui».
 `modal()` desa l'alçada d'abans d'obrir-se i `tancaModal()` la torna a posar: al mòbil el teclat
 desplaça la pàgina del darrere, i sense això en desar des d'un formulari sorties a dalt de tot.
 
+**Mode privat**: el botó de l'ull de la capçalera amaga totes les xifres per poder ensenyar l'app
+sense ensenyar els números. `eur()`/`eur0()` retornen «•••» i la classe `body.privat` deixa
+transparents (amb barra grisa) `.num`, `td.n`, `.kpi .v`, `.imp`, `.big`, `.comprec`,
+`.recline .v`, `input.num` i `.obsline`. Viu a `localStorage['dietari.privat']`, **no** a `S`: no
+se sincronitza, no toca cap càlcul i l'exportació a Excel segueix portant els números de debò.
+Si afegeixes una xifra en un lloc nou, marca-la amb `class="n"` o `.num` i ja queda coberta.
+
 **Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
 `eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`
 `modal(html, onMount)` `mTitle(t)` `tancaModal()` `kpiGrid` `kpiGridWk` `kpiGridMes`

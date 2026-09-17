@@ -90,6 +90,20 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
 .kpi.clickable:active{background:#F2EEE5;}
 .kpi.clickable .v{text-decoration:underline dotted;}
 .scrollx{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+/* ===== MODE PRIVAT =====
+   Amaga totes les xifres (i les notes del dia) per poder ensenyar l'app sense ensenyar els
+   números. Només és aparença: no toca cap dada ni cap càlcul. */
+body.privat .num, body.privat td.n, body.privat .kpi .v, body.privat .imp, body.privat .big,
+body.privat .comprec, body.privat .recline .v, body.privat input.num, body.privat .obsline,
+body.privat .num *, body.privat td.n *, body.privat .kpi .v *, body.privat .imp *,
+body.privat .recline .v *, body.privat .obsline *{
+  color:transparent !important; text-shadow:none !important; text-decoration:none !important;
+}
+body.privat .num, body.privat td.n, body.privat .kpi .v, body.privat .imp, body.privat .big,
+body.privat .comprec, body.privat .recline .v, body.privat input.num, body.privat .obsline{
+  background:var(--linia-2) !important; border-radius:5px; -webkit-user-select:none; user-select:none;
+}
+body.privat td.n{background-clip:padding-box !important;}
 .pos{color:var(--verd);} .neg{color:var(--vermell);} .pend{color:var(--pendent); font-weight:600;}
 .muted{color:var(--tinta-2); font-size:.82rem;}
 .big{font-size:1.5rem; font-weight:700;}
@@ -151,6 +165,7 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
   <h1>Dietari <span id="syncDot" title="Estat de sincronització" style="display:inline-block;width:9px;height:9px;border-radius:50%;background:#888;vertical-align:middle;margin-left:4px;"></span></h1>
   <div style="display:flex;gap:8px;align-items:center;">
     <select id="anySel" class="any" aria-label="Any actiu"></select>
+    <button id="privBtn" title="Amaga les xifres" aria-label="Amaga les xifres" style="background:var(--blau-fosc);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:3px 8px;font-size:.95rem;line-height:1;">👁</button>
     <button id="logoutBtn" title="Tanca la sessió" style="background:var(--blau-fosc);color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:6px;padding:3px 8px;font-size:.85rem;">Surt</button>
   </div>
 </header>
@@ -282,7 +297,7 @@ async function iniciaApp(){
   showLogin(false);
   await load();
   migra();
-  pintaAnys();
+  pintaAnys(); aplicaPrivat();
   if(!restauraPos())render();   // torna on eres abans de refrescar
 }
 async function arrenca(){
@@ -310,9 +325,29 @@ function Y(){return S.years[S.activeYear];}
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,7);}
 
 /* ================= UTILITATS ================= */
+/* ---- Mode privat ----
+   Per ensenyar l'app sense ensenyar els números. Viu al navegador (localStorage), NO a les dades:
+   no es sincronitza amb Supabase, no afecta cap càlcul i no surt a l'exportació d'Excel.
+   Els imports es tornen «•••» aquí, i el CSS (body.privat) tapa la resta de xifres. */
+const PRIV_KEY='dietari.privat';
+let privat=false;
+try{ privat=localStorage.getItem(PRIV_KEY)==='1'; }catch(e){}
+const MASCARA='•••';
+function aplicaPrivat(){
+  document.body.classList.toggle('privat',privat);
+  const b=document.getElementById('privBtn');
+  if(b){const t=privat?'Ensenya les xifres':'Amaga les xifres';b.textContent=privat?'🙈':'👁';b.title=t;b.setAttribute('aria-label',t);}
+}
+function alternaPrivat(){
+  privat=!privat;
+  try{ localStorage.setItem(PRIV_KEY,privat?'1':'0'); }catch(e){}
+  // un detall obert ja té les xifres escrites a dins: es tanca i es torna a pintar tot
+  if($('#modalRoot').innerHTML)tancaModal();
+  aplicaPrivat(); render();
+}
 const fmtEUR=new Intl.NumberFormat('ca-ES',{style:'currency',currency:'EUR'});
-function eur(n){return (n==null||isNaN(n))?'—':fmtEUR.format(n);}
-function eur0(n){return fmtEUR.format(n||0);}
+function eur(n){return privat?MASCARA:((n==null||isNaN(n))?'—':fmtEUR.format(n));}
+function eur0(n){return privat?MASCARA:fmtEUR.format(n||0);}
 function num(v){if(v==null)return 0; if(typeof v==='number')return v; v=String(v).trim().replace(/\./g,m=>m).replace(',','.'); const n=parseFloat(v); return isNaN(n)?0:n;}
 function numOrNull(v){const s=String(v??'').trim(); if(s==='')return null; return num(s);}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
@@ -3042,6 +3077,7 @@ function pintaAnys(){
   sel.innerHTML=Object.keys(S.years).sort().map(a=>`<option ${a===S.activeYear?'selected':''}>${a}</option>`).join('');
 }
 $('#anySel').addEventListener('change',e=>{S.activeYear=e.target.value;save();go('avui');});
+$('#privBtn').addEventListener('click',alternaPrivat);
 function bindVista(){
   ({avui:bindAvui,dietari:bindDietari,tancament:bindTancament,cc:bindCC,factures:bindFactures,
     mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig,
