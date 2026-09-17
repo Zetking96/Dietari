@@ -141,6 +141,10 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
 
 1. **Setmanes Dl–Ds; cada setmana pertany al mes del seu DIMECRES** (regla de majoria de dies,
    com l'Excel del Jaume). `setmanesDelMes(any,mes)`, `isosDelMes(mes)`.
+   La regla no es toca mai, però **una setmana es pot moure a mà al mes del costat**:
+   `Y().setmMes[dilluns]=mes` i `mesSetmanaEf(dilluns,any)` mana a tot arreu (totals, caixa,
+   comparacions, tancament i el mes dels ingressos de TPV al banc). Només s'accepta ±1 mes: així
+   cap setmana no es perd ni apareix a dos mesos. Es tria al desplegable de la setmana desplegada.
    Al banc, **els ingressos de TPV segueixen aquesta mateixa regla** (`ccDataMes`): un ingrés del
    3 d'agost que tanca la setmana del 27 de juliol compta al juliol, i el camp `tpvData` (dia de
    la venda) mana sobre la data del banc. La resta de moviments compten pel mes de la seva data.
@@ -175,13 +179,17 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
 - **Resum anual**: taula mensual, quatrimestres, recaptació per dia de la setmana, i el bloc
   comparatiu — selector de l'any de referència (val per a tot el bloc, `ctx.compAny`) → *rang de
   mesos lliure* (dos desplegables, `ctx.compDes`/`ctx.compFins`; el títol canvia a «Març–Maig»
-  quan no arrenca al gener) → *Quatrimestres* → *Any complet* → *Tendència de tots els anys*
+  quan no arrenca al gener) → *Quatrimestres* → *El que portem fins avui* (de gener al mes d'avui,
+  amb recaptació, despeses, despeses c/c, Fp, FpL i comissió TPV per separat: `acumulaDetall`,
+  `DETALL_FILES`) → *Tendència de tots els anys*
   (amb columna «vs [any de referència]» a més de la cadena «vs any ant.»).
 - **Compres**: Bacallà · Olives · Conserva · Altres (noms editables a Config). IVA per producte,
   import final de factura i descompte. «Altres» té unitat lliure per producte i barreja factures
   amb el que s'apunta al dia a dia.
   **Benefici previst** (`beneficiLinies`, `benCells`) als subtotals per quatrimestre de Bacallà i
-  Conserva i als «Totals de l'any» d'Olives: `Σ qty×pv − Σ import`, contra el cost **sense IVA**.
+  Conserva i als «Totals de l'any» d'Olives: `Σ qty×pv − Σ import`, contra el cost **amb IVA**
+  (`costUnitat`, `benefPct`): amb recàrrec d'equivalència l'IVA no es recupera. Les columnes
+  «Import» dels subtotals segueixen sent la base sense IVA, per poder comparar amb l'Excel d'abans.
   Les línies sense preu de venda no hi compten i el peu de taula diu quants € queden fora.
   Les olives guarden el preu de venda al **catàleg** (`olivesCat[].pv`, €/kg) amb excepció
   opcional per compra (`olivesCompres[].pv`); `olPv()` resol quin mana.
