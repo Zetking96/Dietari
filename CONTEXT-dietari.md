@@ -179,9 +179,13 @@ La lògica va lligada al **rol**, no al nom → reanomenar és segur, esborrar t
 - **Resum anual**: taula mensual, quatrimestres, recaptació per dia de la setmana, i el bloc
   comparatiu — selector de l'any de referència (val per a tot el bloc, `ctx.compAny`) → *rang de
   mesos lliure* (dos desplegables, `ctx.compDes`/`ctx.compFins`; el títol canvia a «Març–Maig»
-  quan no arrenca al gener) → *Quatrimestres* → *El que portem fins avui* (de gener al mes d'avui,
+  quan no arrenca al gener) → *Quatrimestres* → *El que portem fins avui* (de gener a `ultim`,
   amb recaptació, despeses, despeses c/c, Fp, FpL i comissió TPV per separat: `acumulaDetall`,
-  `DETALL_FILES`) → *Tendència de tots els anys*
+  `DETALL_FILES`) → *Tendència de tots els anys*.
+  `ultimMesAmbDades(any, fins)` accepta un tope: al bloc comparatiu es crida amb el mes d'avui,
+  perquè una factura ja apuntada amb data futura no faci que «el que portem d'any» inclogui mesos
+  que encara no han arribat. El peu de la targeta avisa de quants € queden fora del rang, que és
+  el que fa que no quadri amb la columna «Any» de la taula mensual.
   (amb columna «vs [any de referència]» a més de la cadena «vs any ant.»).
 - **Compres**: Bacallà · Olives · Conserva · Altres (noms editables a Config). IVA per producte,
   import final de factura i descompte. «Altres» té unitat lliure per producte i barreja factures

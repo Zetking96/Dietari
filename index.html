@@ -642,13 +642,14 @@ function acumulaDetall(any,mDes,mFins){
 /* Últim mes amb moviment d'un any (per saber fins on arriba «el que portem d'any»).
    Es miren els moviments EN CRU: totalsMes resta la comissió TPV desada, i això faria que un
    mes buit amb comissió apuntada (gen–jun del 2026) semblés que té dades. */
-function ultimMesAmbDades(any){
+function ultimMesAmbDades(any,fins){
   if(!anyExisteix(any))return -1;
+  const top=(fins!=null&&fins>=0&&fins<12)?fins:11;   // no miris més enllà d'aquest mes
   let last=-1;
   const prev=S.activeYear;
   try{
     S.activeYear=any;
-    for(let m=0;m<12;m++){
+    for(let m=0;m<=top;m++){
       let hi;
       if(esHistoric()){const t=histTotalsMes(m); hi=!!(t.rec||t.desp||t.fp||t.fpl||histMes(m,'dcc'));}
       else{const t=totalsRang(isosDelMes(m)); hi=!!(t.ef||t.tpv||t.rec||t.desp||t.fp||t.fpl||despCCMes(m));}
@@ -1996,8 +1997,8 @@ function prodResumHTML(type,nm){
   const uProd=cfg.unitatLliure?[...new Set(ls.map(p=>p.unitat).filter(Boolean))]:[];
   if(cfg.unitatLliure&&uProd.length>1){
     let h='<div class="warn">Aquest producte s\'ha comprat amb unitats diferents ('+uProd.map(esc).join(', ')+'), per això les quantitats no se sumen entre elles.</div>';
-    h+='<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Proveïdor</th><th class="n">Quantitat</th><th class="n">Import</th><th class="n">€/unitat</th></tr></thead><tbody>';
-    ls.forEach(p=>{const c=p.qty?p.imp/p.qty:0;h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${p.prov?`<span style="${PLNK}" data-provresum="${esc(p.prov)}">${esc(p.prov)}</span>`:''}</td><td class="n">${p.qty.toLocaleString('ca-ES')} ${esc(p.unitat)}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
+    h+='<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Proveïdor</th><th class="n">Quantitat</th><th class="n">Import</th><th class="n">€/unitat amb IVA</th></tr></thead><tbody>';
+    ls.forEach(p=>{const c=costUnitat(p);h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${p.prov?`<span style="${PLNK}" data-provresum="${esc(p.prov)}">${esc(p.prov)}</span>`:''}</td><td class="n">${p.qty.toLocaleString('ca-ES')} ${esc(p.unitat)}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
     return h+'</tbody></table></div>';
   }
   if(cfg.unitatLliure)cfg=Object.assign({},cfg,{qtyLab:'Quantitat',unitLab:uProd[0]||'unitat'});
@@ -2012,8 +2013,8 @@ function prodResumHTML(type,nm){
   h+=`<h3>Per quatrimestre</h3><table><thead><tr><th>Període</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th></tr></thead><tbody>`;
   [0,1,2].forEach(qn=>{if(tq[qn])h+=`<tr><td>${QUATRIN[qn]}</td><td class="n">${tq[qn].q.toLocaleString('ca-ES')}</td><td class="n">${eur0(tq[qn].imp)}</td></tr>`;});
   h+='</tbody></table>';
-  h+=`<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Proveïdor</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab}</th></tr></thead><tbody>`;
-  ls.forEach(p=>{const c=p.qty?p.imp/p.qty:0;h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${p.prov?`<span style="${PLNK}" data-provresum="${esc(p.prov)}">${esc(p.prov)}</span>`:''}</td><td class="n">${p.qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
+  h+=`<h3>Totes les compres</h3><div class="scrollx"><table><thead><tr><th>Data</th><th>Proveïdor</th><th class="n">${cfg.qtyLab}</th><th class="n">Import</th><th class="n">€/${cfg.unitLab} amb IVA</th></tr></thead><tbody>`;
+  ls.forEach(p=>{const c=costUnitat(p);h+=`<tr><td>${p.data?dataCA(p.data):'—'}</td><td>${p.prov?`<span style="${PLNK}" data-provresum="${esc(p.prov)}">${esc(p.prov)}</span>`:''}</td><td class="n">${p.qty.toLocaleString('ca-ES')}</td><td class="n">${eur0(p.imp)}</td><td class="n">${c?c.toFixed(2):'—'}</td></tr>`;});
   h+='</tbody></table></div>';
   return h;
 }
@@ -2194,10 +2195,10 @@ function formCompra(type,r){
       cont.querySelectorAll('.prow').forEach(row=>{
         const qty=num(row.querySelector('.p-qty').value),imp=num(row.querySelector('.p-imp').value),
               pv=num(row.querySelector('.p-pv').value),ivp=num(row.querySelector('.p-iva').value);
-        const cost=qty?imp/qty:0,ben=cost&&pv?100*(pv-cost)/cost:null;
+        const cost=costUnitat({qty:qty,imp:imp,iva:ivp}), ben=benefPct({qty:qty,imp:imp,iva:ivp,pv:pv||null});
         const u=row.querySelector('.p-unitat');
         const uLab=(u&&u.value.trim())||cfg.unitLab;
-        const txtCost=cost?('Cost '+cost.toFixed(2)+'/'+uLab+(ben!=null?' · Benef. '+ben.toFixed(1)+'%':'')):'';
+        const txtCost=cost?('Cost '+cost.toFixed(2)+'/'+uLab+(ivp?' amb IVA':'')+(ben!=null?' · Benef. '+ben.toFixed(1)+'%':'')):'';
         const txtIva=ivp?((txtCost?' · ':'')+'IVA '+eur0(r2(imp*ivp/100))):'';
         row.querySelector('.p-calc').textContent=txtCost+txtIva;
       });
@@ -2565,6 +2566,8 @@ function taulaCompHTML(a,b,anyAct,anyAnt){
   return h+'</tbody></table></div>';
 }
 function capMes(i){const n=MESOS[i]||'';return n.charAt(0).toUpperCase()+n.slice(1);}
+/* «del gener», «de l'abril» — l'article canvia si el mes comença amb vocal */
+function delMes(i){const n=MESOS[i]||'';return ('aeiou'.indexOf(n.charAt(0))>=0?"de l'":'del ')+n;}
 /* Anys que es poden fer servir de referència: tots els que existeixen menys el que estàs mirant */
 function anysComparables(anyAct){
   const tots=new Set([...Object.keys(HISTORIC),...Object.keys(S.years||{})]);
@@ -2585,7 +2588,11 @@ function titolRangComp(mDes,mFins){
 }
 function comparativaAnualHTML(){
   const anyAct=S.activeYear, anyComp=anyComparacio(anyAct);
-  const ultim=ultimMesAmbDades(anyAct), ultimComp=anyComp?ultimMesAmbDades(anyComp):-1;
+  const ara=new Date(), enCursAra=String(ara.getFullYear())===anyAct;
+  /* «El que portem d'any» no ha de saltar cap al futur: si tens factures ja apuntades amb data
+     de mesos que encara no han arribat, no compten per saber fins on portem l'any. */
+  const mesAra=enCursAra?ara.getMonth():11;
+  const ultim=ultimMesAmbDades(anyAct,mesAra), ultimComp=anyComp?ultimMesAmbDades(anyComp,mesAra):-1;
   // rang de mesos: el tries tu; per defecte, de gener a l'últim mes amb moviment
   let mFins=(ctx.compFins!=null&&ctx.compFins>=0&&ctx.compFins<12)?ctx.compFins:ultim;
   let mDes=(ctx.compDes!=null&&ctx.compDes>=0&&ctx.compDes<12)?ctx.compDes:0;
@@ -2600,7 +2607,7 @@ function comparativaAnualHTML(){
       `</select></div>`;
     // --- 1. Rang de mesos lliure: els mateixos mesos a banda i banda ---
     const a=acumulaRang(anyAct,mDes,mFins), b=acumulaRang(anyComp,mDes,mFins);
-    const ara=new Date(), enCurs=(String(ara.getFullYear())===anyAct&&ara.getMonth()===mFins);
+    const enCurs=(enCursAra&&ara.getMonth()===mFins);
     const optMes=sel=>MESOS.map((nom,i)=>`<option value="${i}" ${i===sel?'selected':''}>${capMes(i)}${i>ultim?' (sense dades)':''}</option>`).join('');
     h+=`<div class="card"><div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">`+
       `<h3 style="margin:0">${titolRangComp(mDes,mFins)}</h3>`+
@@ -2629,8 +2636,11 @@ function comparativaAnualHTML(){
         '</tbody></table></div><p class="muted" style="margin:8px 2px 0">Els quatrimestres que encara no han començat no hi surten.</p></div>';
     }
     // --- 3. El que portem fins avui, amb cada categoria per separat ---
-    const mAvui=(String(ara.getFullYear())===anyAct)?Math.min(ara.getMonth(),ultim):ultim;
+    const mAvui=ultim;
     const da=acumulaDetall(anyAct,0,mAvui), db=acumulaDetall(anyComp,0,mAvui);
+    // el que hi ha apuntat de mesos posteriors (factures amb data futura, per exemple): no hi compta
+    const fora=mAvui<11?acumulaDetall(anyAct,mAvui+1,11):null;
+    const foraTot=fora?r2(fora.rec+fora.desp+fora.dcc+fora.fp+fora.fpl):0;
     h+=`<div class="card"><h3>El que portem fins avui</h3>`+
       `<div class="muted" style="margin:0 0 8px">De gener a ${MESOS[mAvui]}, categoria per categoria. Al costat, els mateixos mesos de ${anyComp}.</div>`+
       `<div class="scrollx"><table><thead><tr><th>Categoria</th><th class="n">${anyAct}</th><th class="n">${anyComp}</th><th class="n">Variació</th></tr></thead><tbody>`;
@@ -2642,7 +2652,8 @@ function comparativaAnualHTML(){
       varCellHTML(r2(da.rec-da.desp-da.dcc-da.fp-da.fpl),r2(db.rec-db.desp-db.dcc-db.fp-db.fpl),false)+'</tr>';
     h+='</tbody></table></div>';
     h+=`<p class="muted" style="margin:8px 2px 0">La comissió de TPV ja va descomptada de la recaptació de cada mes: aquí surt a part només per saber quant és.`+
-      (String(ara.getFullYear())===anyAct&&ara.getMonth()===mAvui?` Compte: el ${MESOS[mAvui]} de ${anyAct} encara no ha acabat i a l'altra banda hi ha el mes sencer de ${anyComp}.`:'')+'</p>';
+      (enCursAra&&ara.getMonth()===mAvui?` Compte: el ${MESOS[mAvui]} de ${anyAct} encara no ha acabat i a l'altra banda hi ha el mes sencer de ${anyComp}.`:'')+
+      (foraTot?` ${delMes(mAvui+1).charAt(0).toUpperCase()+delMes(mAvui+1).slice(1)} endavant tens ${eur0(foraTot)} ja apuntats (factures amb data posterior i coses així). Aquí no hi compten, però sí a la columna «Any» de la taula de dalt: per això no quadren.`:'')+'</p>';
     h+='</div>';
   }
   // --- 4. Tendència de tots els anys ---
@@ -2651,7 +2662,7 @@ function comparativaAnualHTML(){
   let tf='', prevRec=null, hiHaParcial=false;
   anys.forEach(a=>{
     const t=acumulaRang(a,0,11); if(!t||(!t.rec&&!t.desp&&!t.fp))return;
-    const ult=ultimMesAmbDades(a), parcial=ult<11;
+    const ult=ultimMesAmbDades(a,a===anyAct?mesAra:11), parcial=ult<11;
     if(parcial)hiHaParcial=true;
     const c=coefPct(t.rec,t.desp+t.fp);
     tf+=`<tr${a===anyAct?' class="total"':''}><td>${a}${parcial?` <span class="muted" style="font-weight:400">(fins ${MESOS[ult].slice(0,3)}.)</span>`:''}</td>`+
