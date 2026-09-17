@@ -3083,6 +3083,7 @@ function bindVista(){
     mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig,
     resumAnual:bindDietari}[vista]||(()=>{}))();
 }
+aplicaPrivat();   // abans de res: si ho vas deixar amagat, ha d'arrencar amagat
 arrenca();
 /* ---- Versions noves ----
    Quan es publica una versió nova, el navegador activa el service worker nou i aquí es recarrega
