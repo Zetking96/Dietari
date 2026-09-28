@@ -123,6 +123,11 @@ les intercepta: `numDeText()` llegeix el número i `calcPosaNumero()` l'afegeix 
 el detall de la cel·la no s'obre. `calcAvalua()` és un shunting-yard propi (+ − × ÷ i parèntesis):
 **no es pot fer servir `eval()`**, la CSP no el permet. En mode privat no s'agafen xifres (estan
 emmascarades) i el clic torna a obrir el detall de sempre.
+Als camps de formulari (`input.num`: efectiu, TPV, imports de les línies…) la xifra és al `value`,
+no al text: `textXifra()` ho resol. Un camp amb número **no agafa el focus** mentre la calculadora
+és oberta (un `pointerdown` en captura ho evita, i així no surt el teclat del mòbil); els camps
+buits sí, que encara els has d'omplir. Amb un modal obert no s'intercepta res: el modal tapa el
+panell i els camps es deixen editar com sempre.
 
 **Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
 `eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`

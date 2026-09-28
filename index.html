@@ -438,6 +438,12 @@ function calcAvalua(expr){
   }
   return (pila.length===1&&isFinite(pila[0]))?pila[0]:null;
 }
+/* Als camps de formulari la xifra és al `value`, no al text: si no, els números que escrius tu
+   (efectiu, TPV, imports del dia…) no es podien agafar. */
+function textXifra(el){
+  if(!el)return '';
+  return (el.tagName==='INPUT'||el.tagName==='TEXTAREA')?String(el.value||''):String(el.textContent||'');
+}
 function calcTxtNum(n){return String(parseFloat(n.toFixed(10))).replace('.',',');}
 function calcPinta(){
   const e=document.getElementById('calcExp'), r=document.getElementById('calcRes');
@@ -3227,13 +3233,25 @@ $('#calcTecles').addEventListener('click',e=>{const b=e.target.closest('button')
 document.addEventListener('click',e=>{
   if(!calcObert||privat)return;
   if(e.target.closest('#calcPanel')||e.target.closest('#calcBtn'))return;
+  if($('#modalRoot').innerHTML)return;   // amb un detall obert la calculadora queda tapada: no hi toquis
   const cel=e.target.closest(SEL_XIFRA);
   if(!cel)return;
   const font=(e.target!==cel&&/\d/.test(e.target.textContent||''))?e.target:cel;
-  const n=numDeText(font.textContent);
+  const n=numDeText(textXifra(font));
   if(n==null)return;
   e.preventDefault(); e.stopPropagation();
+  if(font.blur)font.blur();
   calcPosaNumero(n);
+},true);
+/* Un camp amb un número a dins no ha d'agafar el focus (ni obrir el teclat del mòbil) quan el
+   que vols és endur-te'l a la calculadora. Els buits es deixen tocar: encara els has d'omplir. */
+document.addEventListener('pointerdown',e=>{
+  if(!calcObert||privat)return;
+  const el=e.target;
+  if(!el||el.tagName!=='INPUT'||!el.classList||!el.classList.contains('num'))return;
+  if(el.closest('#calcPanel')||$('#modalRoot').innerHTML)return;
+  if(numDeText(el.value)==null)return;
+  e.preventDefault();
 },true);
 /* Teclat, per quan hi treballes des de l'ordinador */
 document.addEventListener('keydown',e=>{
