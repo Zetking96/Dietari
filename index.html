@@ -90,6 +90,31 @@ td.clickable{cursor:pointer; color:var(--blau); text-decoration:underline dotted
 .kpi.clickable:active{background:#F2EEE5;}
 .kpi.clickable .v{text-decoration:underline dotted;}
 .scrollx{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+/* ===== CALCULADORA =====
+   Botó flotant a baix a l'esquerra (a l'altra banda del «+», que no es trepitgin). Amb el panell
+   obert, totes les xifres de la pantalla es marquen i clicant-hi entren a la calculadora. */
+.fab-calc{position:fixed; left:16px; bottom:calc(var(--nav-h) + 16px + env(safe-area-inset-bottom));
+  width:46px; height:46px; border-radius:50%; background:var(--blau); color:#fff; border:none;
+  font-size:1.2rem; line-height:1; box-shadow:0 3px 10px rgba(0,0,0,.25); z-index:16; padding:0;}
+#calcPanel{position:fixed; left:0; right:0; bottom:calc(var(--nav-h) + env(safe-area-inset-bottom));
+  z-index:35; background:var(--paper); border-top:1px solid var(--linia-2);
+  box-shadow:0 -4px 14px rgba(0,0,0,.14); padding:8px 10px 10px; max-width:560px; margin:0 auto;}
+.calc-dalt{display:flex; align-items:flex-end; gap:8px;}
+.calc-exp{flex:1; min-width:0; font-size:1.25rem; font-weight:700; text-align:right;
+  overflow-x:auto; white-space:nowrap; direction:rtl;}
+.calc-res{font-size:.9rem; color:var(--tinta-2); text-align:right; min-height:1.1em; white-space:nowrap;}
+.calc-tecles{display:grid; grid-template-columns:repeat(4,1fr); gap:6px; margin-top:8px;}
+.calc-tecles button{padding:11px 0; font-size:1.05rem; font-weight:600;}
+.calc-tecles button.op{background:#EFECE4;}
+.calc-tecles button.ig{background:var(--blau); border-color:var(--blau); color:#fff;}
+.calc-ajuda{font-size:.74rem; color:var(--tinta-2); text-align:center; margin-top:7px;}
+body.calcobert{padding-bottom:calc(var(--nav-h) + var(--calc-h,320px) + 14px + env(safe-area-inset-bottom));}
+/* les xifres de la pantalla, marcades i clicables mentre la calculadora és oberta */
+body.calcobert:not(.privat) .num, body.calcobert:not(.privat) td.n,
+body.calcobert:not(.privat) .kpi .v, body.calcobert:not(.privat) .imp,
+body.calcobert:not(.privat) .big, body.calcobert:not(.privat) .recline .v{
+  cursor:pointer; background:#FBEFD2 !important; box-shadow:inset 0 0 0 1px var(--ocre); border-radius:4px;
+}
 /* ===== MODE PRIVAT =====
    Amaga totes les xifres (i les notes del dia) per poder ensenyar l'app sense ensenyar els
    números. Només és aparença: no toca cap dada ni cap càlcul. */
@@ -171,6 +196,24 @@ body.privat td.n{background-clip:padding-box !important;}
 </header>
 <main id="view"></main>
 <button class="fab-add" id="fab" aria-label="Afegeix" style="display:none">+</button>
+<button class="fab-calc" id="calcBtn" aria-label="Calculadora" title="Calculadora" style="display:none">🧮</button>
+<div id="calcPanel" style="display:none">
+  <div class="calc-dalt">
+    <div style="flex:1;min-width:0">
+      <div class="calc-exp" id="calcExp">0</div>
+      <div class="calc-res" id="calcRes"></div>
+    </div>
+    <button class="small" id="calcTanca" aria-label="Tanca la calculadora">✕</button>
+  </div>
+  <div class="calc-tecles" id="calcTecles">
+    <button data-k="C">C</button><button data-k="(">(</button><button data-k=")">)</button><button data-k="⌫" class="op">⌫</button>
+    <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button><button data-k="÷" class="op">÷</button>
+    <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button><button data-k="×" class="op">×</button>
+    <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button><button data-k="−" class="op">−</button>
+    <button data-k="0">0</button><button data-k=",">,</button><button data-k="=" class="ig">=</button><button data-k="+" class="op">+</button>
+  </div>
+  <div class="calc-ajuda" id="calcAjuda">Clica qualsevol xifra de la pantalla i entrarà aquí.</div>
+</div>
 <nav class="tabs" id="nav">
   <button data-v="avui"><span class="ic">✎</span>Avui</button>
   <button data-v="dietari"><span class="ic">▦</span>Dietari</button>
@@ -337,6 +380,7 @@ function aplicaPrivat(){
   document.body.classList.toggle('privat',privat);
   const b=document.getElementById('privBtn');
   if(b){const t=privat?'Ensenya les xifres':'Amaga les xifres';b.textContent=privat?'🙈':'👁';b.title=t;b.setAttribute('aria-label',t);}
+  if(typeof calcObert!=='undefined'&&calcObert)calcAjudaText();
 }
 function alternaPrivat(){
   privat=!privat;
@@ -345,6 +389,103 @@ function alternaPrivat(){
   if($('#modalRoot').innerHTML)tancaModal();
   aplicaPrivat(); render();
 }
+/* ================= CALCULADORA =================
+   Per fer quatre números sense sortir de l'app. Amb el panell obert, qualsevol xifra de la
+   pantalla es pot clicar i entra a l'expressió. No toca cap dada: és un full en brut. */
+const SEL_XIFRA='.num, td.n, .kpi .v, .imp, .big, .recline .v';
+let calcObert=false, calcExpr='';
+/* Primer número que aparegui en un text: «1.234,56 €» → 1234.56, «▲ 27.3 %» → 27.3, «•••» → res.
+   Aquí el punt sol ser de milers i la coma decimal, però els percentatges i els €/kg venen de
+   toFixed() amb punt decimal: «1.234» són mil dos-cents, «27.3» són vint-i-set i tres. */
+function numDeText(t){
+  const s=String(t||'');
+  const m=s.match(/\d[\d.\u00a0\u202f ]*(?:,\d+)?/);
+  if(!m)return null;
+  const negatiu=/[-\u2212]\s*$/.test(s.slice(0,m.index));
+  const cru=m[0].replace(/[\u00a0\u202f ]/g,'').replace(/\.$/,'');
+  let v;
+  if(cru.indexOf(',')>=0)v=cru.replace(/\./g,'').replace(',','.');
+  else{const p=cru.split('.');v=(p.length>1&&p[p.length-1].length===3)?p.join(''):cru;}
+  const n=parseFloat(v);
+  return isFinite(n)?(negatiu?-n:n):null;
+}
+/* Avaluador propi (+ − × ÷ i parèntesis). Res d'eval(): la política de seguretat no el permet. */
+function calcAvalua(expr){
+  const net=String(expr).replace(/\u00d7/g,'*').replace(/\u00f7/g,'/').replace(/\u2212/g,'-').replace(/,/g,'.');
+  const toks=net.match(/\d+(?:\.\d+)?|[+\-*/()]/g);
+  if(!toks||!toks.length)return null;
+  const prec={'+':1,'-':1,'*':2,'/':2}, sortida=[], ops=[];
+  let esperaValor=true;
+  for(const t of toks){
+    if(/^\d/.test(t)){sortida.push(parseFloat(t));esperaValor=false;}
+    else if(t==='('){ops.push(t);esperaValor=true;}
+    else if(t===')'){while(ops.length&&ops[ops.length-1]!=='(')sortida.push(ops.pop());if(!ops.length)return null;ops.pop();esperaValor=false;}
+    else{
+      if(esperaValor){ if(t==='-')sortida.push(0); else return null; }
+      while(ops.length&&ops[ops.length-1]!=='('&&prec[ops[ops.length-1]]>=prec[t])sortida.push(ops.pop());
+      ops.push(t);esperaValor=true;
+    }
+  }
+  if(esperaValor)return null;
+  while(ops.length){const o=ops.pop();if(o==='(')return null;sortida.push(o);}
+  const pila=[];
+  for(const t of sortida){
+    if(typeof t==='number'){pila.push(t);continue;}
+    const b=pila.pop(), a=pila.pop();
+    if(a==null||b==null)return null;
+    if(t==='+')pila.push(a+b); else if(t==='-')pila.push(a-b); else if(t==='*')pila.push(a*b);
+    else{ if(!b)return null; pila.push(a/b); }
+  }
+  return (pila.length===1&&isFinite(pila[0]))?pila[0]:null;
+}
+function calcTxtNum(n){return String(parseFloat(n.toFixed(10))).replace('.',',');}
+function calcPinta(){
+  const e=document.getElementById('calcExp'), r=document.getElementById('calcRes');
+  if(!e)return;
+  e.textContent=calcExpr||'0';
+  const v=calcAvalua(calcExpr);
+  r.textContent=(v!=null&&/[+\u2212\u00d7\u00f7]/.test(calcExpr))?'= '+v.toLocaleString('ca-ES',{maximumFractionDigits:6}):'';
+}
+function calcTecla(k){
+  if(k==='C')calcExpr='';
+  else if(k==='\u232b')calcExpr=calcExpr.slice(0,-1);
+  else if(k==='='){const v=calcAvalua(calcExpr);if(v!=null)calcExpr=calcTxtNum(v);}
+  else if('+\u2212\u00d7\u00f7'.indexOf(k)>=0){
+    if(!calcExpr)return;
+    calcExpr=('+\u2212\u00d7\u00f7'.indexOf(calcExpr.slice(-1))>=0)?calcExpr.slice(0,-1)+k:calcExpr+k;
+  }
+  else if(k===','){ if(/\d$/.test(calcExpr)&&!/,\d*$/.test(calcExpr))calcExpr+=','; }
+  else calcExpr+=k;
+  calcPinta();
+}
+/* Una xifra clicada a la pantalla: si l'expressió ja acabava en número, el substitueix
+   (t'has equivocat de casella); si acabava en operador o era buida, s'hi afegeix. */
+function calcPosaNumero(n){
+  const s=calcTxtNum(n);
+  calcExpr=/[\d,]$/.test(calcExpr)?calcExpr.replace(/[\d,]+$/,s):calcExpr+s;
+  calcPinta();
+}
+function calcObre(){
+  calcObert=true;
+  const pan=document.getElementById('calcPanel');
+  pan.style.display='block';
+  document.body.classList.add('calcobert');
+  // el marge de sota es calcula amb l'alçada real del panell: així res no queda tapat
+  document.documentElement.style.setProperty('--calc-h',pan.offsetHeight+'px');
+  calcAjudaText();
+  calcPinta();
+}
+function calcAjudaText(){
+  const a=document.getElementById('calcAjuda');
+  if(a)a.textContent=privat?'Les xifres estan amagades: ensenya-les amb l\u2019ull per poder clicar-les.'
+                           :'Clica qualsevol xifra de la pantalla i entrar\u00e0 aqu\u00ed.';
+}
+function calcTanca(){
+  calcObert=false;
+  document.getElementById('calcPanel').style.display='none';
+  document.body.classList.remove('calcobert');
+}
+function calcAlterna(){ calcObert?calcTanca():calcObre(); }
 const fmtEUR=new Intl.NumberFormat('ca-ES',{style:'currency',currency:'EUR'});
 function eur(n){return privat?MASCARA:((n==null||isNaN(n))?'—':fmtEUR.format(n));}
 function eur0(n){return privat?MASCARA:fmtEUR.format(n||0);}
@@ -793,6 +934,7 @@ function render(opts){
   });
   const fab=$('#fab');
   fab.style.display=(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.sub!=='inventari'))?'block':'none';
+  $('#calcBtn').style.display='block';   // la calculadora és a totes les pestanyes
   $('#view').innerHTML=VISTES[vista]();
   bindVista();
   scrollA(o.top?0:y);
@@ -3078,6 +3220,40 @@ function pintaAnys(){
 }
 $('#anySel').addEventListener('change',e=>{S.activeYear=e.target.value;save();go('avui');});
 $('#privBtn').addEventListener('click',alternaPrivat);
+$('#calcBtn').addEventListener('click',calcAlterna);
+$('#calcTanca').addEventListener('click',calcTanca);
+$('#calcTecles').addEventListener('click',e=>{const b=e.target.closest('button');if(b)calcTecla(b.dataset.k);});
+/* Clicar una xifra de la pantalla amb la calculadora oberta: se l'endú ella i no obre el detall */
+document.addEventListener('click',e=>{
+  if(!calcObert||privat)return;
+  if(e.target.closest('#calcPanel')||e.target.closest('#calcBtn'))return;
+  const cel=e.target.closest(SEL_XIFRA);
+  if(!cel)return;
+  const font=(e.target!==cel&&/\d/.test(e.target.textContent||''))?e.target:cel;
+  const n=numDeText(font.textContent);
+  if(n==null)return;
+  e.preventDefault(); e.stopPropagation();
+  calcPosaNumero(n);
+},true);
+/* Teclat, per quan hi treballes des de l'ordinador */
+document.addEventListener('keydown',e=>{
+  if(!calcObert)return;
+  const a=document.activeElement;
+  if(a&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
+  const k=e.key;
+  if(/^[0-9]$/.test(k))calcTecla(k);
+  else if(k===','||k==='.')calcTecla(',');
+  else if(k==='+')calcTecla('+');
+  else if(k==='-')calcTecla('\u2212');
+  else if(k==='*')calcTecla('\u00d7');
+  else if(k==='/')calcTecla('\u00f7');
+  else if(k==='('||k===')')calcTecla(k);
+  else if(k==='Enter'||k==='=')calcTecla('=');
+  else if(k==='Backspace')calcTecla('\u232b');
+  else if(k==='Escape')calcTanca();
+  else return;
+  e.preventDefault();
+});
 function bindVista(){
   ({avui:bindAvui,dietari:bindDietari,tancament:bindTancament,cc:bindCC,factures:bindFactures,
     mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig,

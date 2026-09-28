@@ -116,6 +116,14 @@ transparents (amb barra grisa) `.num`, `td.n`, `.kpi .v`, `.imp`, `.big`, `.comp
 se sincronitza, no toca cap càlcul i l'exportació a Excel segueix portant els números de debò.
 Si afegeixes una xifra en un lloc nou, marca-la amb `class="n"` o `.num` i ja queda coberta.
 
+**Calculadora**: botó flotant a baix a l'esquerra (`#calcBtn`, a totes les vistes) i panell fix
+a sobre del menú (`#calcPanel`). Amb el panell obert, la classe `body.calcobert` marca les xifres
+(`SEL_XIFRA`, la mateixa llista que el mode privat) i un listener de clic **en fase de captura**
+les intercepta: `numDeText()` llegeix el número i `calcPosaNumero()` l'afegeix a l'expressió, i
+el detall de la cel·la no s'obre. `calcAvalua()` és un shunting-yard propi (+ − × ÷ i parèntesis):
+**no es pot fer servir `eval()`**, la CSP no el permet. En mode privat no s'agafen xifres (estan
+emmascarades) i el clic torna a obrir el detall de sempre.
+
 **Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
 `eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`
 `modal(html, onMount)` `mTitle(t)` `tancaModal()` `kpiGrid` `kpiGridWk` `kpiGridMes`
