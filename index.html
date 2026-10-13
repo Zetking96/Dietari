@@ -567,7 +567,7 @@ function paysRowHTML(p){const mode=(p&&p.mode)||'Taló';return `<div class="payr
     <div class="row3">
       <input type="date" class="pay-data" value="${(p&&p.data)||''}">
       <select class="pay-mode">${F_MODES.map(c=>`<option ${c===mode?'selected':''}>${c}</option>`).join('')}</select>
-      <input class="num pay-imp" inputmode="decimal" placeholder="Import" value="${p&&p.imp!=null&&p.imp!==''?p.imp:''}">
+      <input class="num pay-imp" inputmode="decimal" placeholder="Import" data-auto="${p&&p.imp!=null&&p.imp!==''?'0':'1'}" value="${p&&p.imp!=null&&p.imp!==''?p.imp:''}">
     </div>
     <div class="row2" style="margin-top:6px">
       <input class="pay-talo" placeholder="Núm. de taló" value="${esc((p&&p.talo)||'')}">
@@ -589,21 +589,41 @@ function bindPaysSection(el,totalFn){
     data:r.querySelector('.pay-data').value,talo:r.querySelector('.pay-talo').value.trim(),
     imp:numOrNull(r.querySelector('.pay-imp').value),mode:r.querySelector('.pay-mode').value,
     banc:r.querySelector('.pay-banc').checked}));
-  const recalc=()=>{const arr=read(),h=hui(),tot=num(totalFn());
+  /* Per defecte es paga el total de la factura: mentre només hi hagi un pagament i no li hagis
+     tocat l'import a mà, segueix el total. Si el fracciones, cada import ja és cosa teva. */
+  const autoTotal=()=>{
+    const files=[...cont.querySelectorAll('.payrow')];
+    if(files.length!==1)return;
+    const inp=files[0].querySelector('.pay-imp');
+    if(!inp||inp.dataset.auto==='0')return;
+    const tot=num(totalFn());
+    const nou=tot?String(r2(tot)).replace('.',','):'';
+    if(inp.value!==nou)inp.value=nou;
+  };
+  const recalc=()=>{autoTotal();const arr=read(),h=hui(),tot=num(totalFn());
     const pg=arr.filter(p=>p.data&&p.data<=h).reduce((s,p)=>s+num(p.imp),0);
     const pv=arr.filter(p=>p.data&&p.data>h).reduce((s,p)=>s+num(p.imp),0);
     const sum=pg+pv;
     el.querySelector('.pays-sum').textContent=eur0(pg)+(tot?' de '+eur0(tot):'')+
       (pv?' · previst '+eur0(pv):'')+(tot?(sum+0.005<tot?' · falta '+eur0(tot-sum):(sum>tot+0.005?' · excés':(pv?'':' ✓'))):'');};
   const rerender=arr=>{cont.innerHTML=(arr.length?arr:[{data:'',talo:'',imp:'',mode:'Taló',banc:false}]).map(paysRowHTML).join('');recalc();};
-  cont.addEventListener('input',recalc);
+  cont.addEventListener('input',e=>{
+    if(e.target&&e.target.classList&&e.target.classList.contains('pay-imp'))e.target.dataset.auto='0';
+    recalc();
+  });
   cont.addEventListener('click',e=>{const d=e.target.closest('.pay-del');if(!d)return;
     const arr=read(),i=[...cont.querySelectorAll('.payrow')].indexOf(d.closest('.payrow'));arr.splice(i,1);rerender(arr);});
-  el.querySelector('.pays-add').addEventListener('click',()=>{const arr=read();arr.push({data:'',talo:'',imp:'',mode:'Taló',banc:false});rerender(arr);});
+  // en afegir un pagament, ve omplert amb el que falta per pagar: fraccionar és escriure una xifra
+  el.querySelector('.pays-add').addEventListener('click',()=>{
+    const arr=read(), tot=num(totalFn()), ja=arr.reduce((s,p)=>s+num(p.imp),0), resta=r2(tot-ja);
+    arr.push({data:'',talo:'',imp:resta>0.005?String(resta).replace('.',','):'',mode:'Taló',banc:false});
+    rerender(arr);
+  });
   recalc();
   el.addEventListener('input',e=>{if(!e.target.closest('.pays-cont'))recalc();});
   // cada pagament rep un id estable: és el que lliga l'apunt del compte corrent amb el pagament
-  return ()=>read().filter(p=>p.data||p.imp!=null).map(p=>({id:p.id||uid(),data:p.data,talo:p.talo,
+  // sense data no és cap pagament: enlloc del programa compta, i desar-lo només embruta la factura
+  return ()=>read().filter(p=>p.data).map(p=>({id:p.id||uid(),data:p.data,talo:p.talo,
     imp:p.imp==null?0:p.imp,mode:p.mode||'Taló',banc:!!p.banc}));
 }
 /* Aplica els pagaments a una factura i en recalcula l'estat. La data de la factura és la del
@@ -902,7 +922,7 @@ function ingresTpvBancMes(mes){const c=ccCatByRole('tpv');if(!c)return 0;return 
 /* ================= NAVEGACIÓ ================= */
 let vista='avui'; let ctx={};
 const $=s=>document.querySelector(s);
-const VISTES={avui:vAvui,dietari:vDietari,tancament:vTancament,cc:vCC,factures:vFactures,mes:vMes,compres:vCompres,tresoreria:vTresoreria,resumAnual:vResumAnual,copia:vCopia,config:vConfig};
+const VISTES={avui:vAvui,dietari:vDietari,tancament:vTancament,cc:vCC,factures:vFactures,mes:vMes,compres:vCompres,desglossament:vDesglossament,resumAnual:vResumAnual,copia:vCopia,config:vConfig};
 /* ---- On eres l'última vegada ----
    Desar qualsevol cosa refà la pàgina sencera, i abans això et deixava sempre a dalt de tot.
    Ara la posició es guarda a sessionStorage: aguanta els refrescos de la pestanya, però obrint
@@ -935,7 +955,7 @@ document.getElementById('nav').addEventListener('click',e=>{
 function render(opts){
   const o=opts||{}, y=o.y!=null?o.y:window.scrollY;
   document.querySelectorAll('#nav button').forEach(b=>{
-    const grup={avui:'avui',dietari:'dietari',tancament:'dietari',cc:'cc',factures:'factures',compres:'compres',mes:'mes',tresoreria:'mes',resumAnual:'mes',copia:'mes',config:'mes'}[vista];
+    const grup={avui:'avui',dietari:'dietari',tancament:'dietari',cc:'cc',factures:'factures',compres:'compres',mes:'mes',desglossament:'mes',resumAnual:'mes',copia:'mes',config:'mes'}[vista];
     b.classList.toggle('on',b.dataset.v===grup);
   });
   const fab=$('#fab');
@@ -1951,7 +1971,7 @@ function formFactura(f){
 
 /* ================= VISTA: MÉS (menú) ================= */
 function vMes(){
-  const its=[['tresoreria','◑','Resum de tresoreria'],['exporta','⇩','Exporta a Excel (.xlsx)'],
+  const its=[['desglossament','▤','Desglossament de l\'any'],['exporta','⇩','Exporta a Excel (.xlsx)'],
     ['copia','⛃','Còpia de seguretat (JSON)'],['config','⚙','Configuració i anys']];
   return '<h2>Més</h2><div class="card tight menu">'+its.map(([v,ic,t])=>
     `<div class="item" data-go="${v}"><div class="t"><span class="ic">${ic}</span>${t}</div><div class="muted">›</div></div>`).join('')+'</div>';
@@ -2651,17 +2671,123 @@ function bindCompres(){
 }
 
 /* ================= VISTA: TRESORERIA ================= */
-function vTresoreria(){
-  let ultim=null,ultimK=null;
-  Object.keys(Y().tanc).sort().forEach(k=>{const t=Y().tanc[k];if(t.caixa!=null||t.banc!=null){ultim=t;ultimK=k;}});
-  const pend=facturesPendentsTotal();
-  const caixa=ultim?ultim.caixa:null, banc=ultim?ultim.banc:null;
-  const neta=(caixa||0)+(banc||0)-pend;
-  return `<h2>Resum de tresoreria</h2>
-  <div class="card">
-    ${ultimK?'<div class="muted" style="margin-bottom:8px">Saldos del tancament de '+MESOS[parseInt(ultimK.slice(5))-1]+'.</div>':'<div class="warn">Encara no hi ha cap tancament mensual amb saldos. La posició surt només de les factures pendents.</div>'}
-    ${kpiGrid([['Efectiu en caixa',eur(caixa)],['Saldo banc',eur(banc)],['Factures pendents',eur0(pend)],['Posició neta',eur0(neta)]])}
-  </div>`;
+/* ================= VISTA: DESGLOSSAMENT DE L'ANY =================
+   El resum anual dona els totals; això ensenya de què estan fets. Cada peça es desa amb el mes on
+   compta, i d'aquí surt tant el total per concepte com el mes a mes en clicar-hi.
+   Les fonts són exactament les que fan servir `totalsMes` i `despCCMes`: si algun dia canvia un
+   càlcul, aquí s'ha de canviar igual o les xifres deixaran de quadrar. */
+const DESG_BLOCS=[['rec','Recaptació'],['desp','Despeses (+ c/c)'],['fp','Fp'],['fpl','FpL']];
+const DESG_ORIGEN={dia:'dia a dia',factura:'factura',banc:'banc',olives:'olives',mes:'del mes'};
+function clauConcepte(s){return String(s||'').trim().toLowerCase()||'—';}
+/* Totes les peces dels quatre blocs, d'una sola passada per l'any */
+function pecesAny(){
+  const out={rec:[],desp:[],fp:[],fpl:[]};
+  const posa=(bloc,mes,origen,nom,imp)=>{
+    if(!imp)return;
+    out[bloc].push({mes:mes,clau:origen+'|'+clauConcepte(nom),origen:origen,
+      nom:String(nom||'').trim()||'(sense concepte)',imp:imp});
+  };
+  const cd=ccCatByRole('despcc');
+  for(let m=0;m<12;m++){
+    isosDelMes(m).forEach(ds=>{
+      const d=dia(ds);
+      // --- recaptació: les mateixes peces que suma recDia() ---
+      if(d){ posa('rec',m,'dia','Efectiu',num(d.ef)); posa('rec',m,'dia','TPV',tpvNetDia(d,ds)); }
+      [['fpLines','Fp'],['fplLines','FpL'],['despLines','Despeses']].forEach(([k,et])=>{
+        ((d&&d[k])||[]).filter(l=>l.rec).forEach(l=>posa('rec',m,'dia',et+' marcat · '+(l.c||'—'),num(l.imp)));
+      });
+      factPagsDia(ds).filter(x=>x.f.recDia).forEach(x=>posa('rec',m,'factura',x.f.concepte||x.f.empresa||'Factura',num(x.imp)));
+      despCCDia(ds).filter(x=>x.recDia).forEach(x=>posa('rec',m,'banc',x.concepte||ccCatNom(x),num(x.debe)));
+      // --- despeses, Fp i FpL: línies del dia i factures de la categoria ---
+      [['desp','despLines'],['fp','fpLines'],['fpl','fplLines']].forEach(([bloc,k])=>{
+        ((d&&d[k])||[]).forEach(l=>posa(bloc,m,'dia',l.c,num(l.imp)));
+        factPagsDia(ds).filter(x=>factBlock(x.f)===bloc).forEach(x=>posa(bloc,m,'factura',x.f.concepte||x.f.empresa||'Factura',num(x.imp)));
+      });
+      (Y().olivesCompres||[]).filter(c=>(c.bloc==='fp'||c.bloc==='fpl')&&c.set&&olDissabte(c.set)===ds).forEach(c=>{
+        const p=(Y().olivesCat||[]).find(x=>x.id===c.prod);
+        posa(c.bloc,m,'olives',p?p.nom:'Olives',num(c.imp));
+      });
+    });
+    // la comissió TPV desada es resta del mes sencer, no de cap dia
+    const s=comissioMesStored(m); if(s)posa('rec',m,'mes','− Comissió TPV',-s);
+    // les despeses de compte corrent compten per mes
+    if(cd)ccDelMes(m).filter(x=>x.catId===cd.id&&x.estat!=='Cancelat').forEach(x=>posa('desp',m,'banc',x.concepte||ccCatNom(x),num(x.debe)));
+  }
+  return out;
+}
+/* El total oficial d'un bloc, tal com el calcula el resum anual */
+function totalBloc(bloc,mDes,mFins){
+  let t=0;
+  for(let m=mDes;m<=mFins;m++){
+    const tm=totalsMes(m);
+    t+= bloc==='rec'?tm.rec : bloc==='desp'?(tm.desp+despCCMes(m)) : bloc==='fp'?tm.fp : tm.fpl;
+  }
+  return r2(t);
+}
+function vDesglossament(){
+  let h='<h2>Desglossament '+S.activeYear+'</h2>';
+  if(esHistoric())return h+'<div class="card muted">Del '+S.activeYear+' només en tenim els totals de cada mes, no el detall del dia a dia: no es pot desglossar.</div>';
+  const per=['any','0','1','2'].indexOf(String(ctx.per))>=0?String(ctx.per):'any';
+  ctx.per=per;
+  const mDes=per==='any'?0:parseInt(per)*4, mFins=per==='any'?11:parseInt(per)*4+3;
+  h+='<div class="subtabs">'+[['any','Any sencer'],['0','Q1'],['1','Q2'],['2','Q3']]
+    .map(([k,t])=>`<button data-desgper="${k}" class="${k===per?'on':''}">${t}</button>`).join('')+'</div>';
+  const peces=pecesAny();
+  DESG_BLOCS.forEach(([bloc,nom])=>{
+    const dins=peces[bloc].filter(p=>p.mes>=mDes&&p.mes<=mFins);
+    const oficial=totalBloc(bloc,mDes,mFins);
+    const grups={};
+    dins.forEach(p=>{const g=grups[p.clau]=grups[p.clau]||{nom:p.nom,origen:p.origen,imp:0,n:0};g.imp+=p.imp;g.n++;});
+    const files=Object.keys(grups).map(k=>({clau:k,nom:grups[k].nom,origen:grups[k].origen,n:grups[k].n,imp:r2(grups[k].imp)}))
+      .sort((a,b)=>Math.abs(b.imp)-Math.abs(a.imp));
+    const suma=r2(files.reduce((s,f)=>s+f.imp,0));
+    h+='<div class="card"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">'+
+      '<h3 style="margin:0">'+nom+'</h3><div class="num" style="font-weight:700">'+eur0(oficial)+'</div></div>';
+    if(!files.length){ h+='<div class="muted" style="margin-top:6px">Res en aquest període.</div></div>'; return; }
+    h+='<div class="scrollx" style="margin-top:8px"><table><thead><tr><th>Concepte</th><th class="n">Import</th><th class="n">%</th></tr></thead><tbody>';
+    files.forEach(f=>{
+      const pct=oficial?100*f.imp/oficial:null;
+      h+=`<tr class="clickable" data-desg="${bloc}|${esc(f.clau)}"><td>${esc(f.nom)} <span class="muted" style="font-size:.72rem">${DESG_ORIGEN[f.origen]||f.origen}${f.n>1?' · '+f.n+' mov.':''}</span></td>`+
+        `<td class="n">${eur0(f.imp)}</td><td class="n">${pct!=null?pct.toFixed(1)+' %':'—'}</td></tr>`;
+    });
+    if(Math.abs(suma-oficial)>0.01)
+      h+=`<tr class="muted"><td>Resta sense classificar</td><td class="n">${eur0(r2(oficial-suma))}</td><td class="n"></td></tr>`;
+    h+=`<tr class="total"><td>Total</td><td class="n">${eur0(oficial)}</td><td class="n">100,0 %</td></tr>`;
+    h+='</tbody></table></div></div>';
+  });
+  h+='<p class="muted" style="margin:2px 2px 0">Clica un concepte per veure el seu mes a mes. Els totals són els mateixos que al resum anual: les despeses inclouen les del compte corrent, i la comissió de TPV va restada de la recaptació.</p>';
+  return h;
+}
+function bindDesglossament(){
+  document.querySelectorAll('[data-desgper]').forEach(b=>b.addEventListener('click',()=>go('desglossament',{...ctx,per:b.dataset.desgper})));
+  document.querySelectorAll('[data-desg]').forEach(tr=>tr.addEventListener('click',()=>{
+    const s=tr.dataset.desg, i=s.indexOf('|');
+    obreDesgDetall(s.slice(0,i),s.slice(i+1));
+  }));
+}
+function obreDesgDetall(bloc,clau){
+  const peces=pecesAny()[bloc].filter(p=>p.clau===clau);
+  const nom=peces.length?peces[0].nom:clau;
+  const perMes=Array.from({length:12},()=>0);
+  peces.forEach(p=>perMes[p.mes]+=p.imp);
+  const tot=r2(perMes.reduce((a,b)=>a+b,0));
+  let h='<div class="scrollx"><table><thead><tr><th>Mes</th><th class="n">Import</th><th class="n">% del concepte</th></tr></thead><tbody>';
+  for(let m=0;m<12;m++){
+    if(!perMes[m])continue;
+    h+=`<tr><td style="text-transform:capitalize">${MESOS[m]}</td><td class="n">${eur0(r2(perMes[m]))}</td>`+
+      `<td class="n">${tot?(100*perMes[m]/tot).toFixed(1)+' %':'—'}</td></tr>`;
+  }
+  h+=`<tr class="total"><td>Any ${S.activeYear}</td><td class="n">${eur0(tot)}</td><td class="n">100,0 %</td></tr>`;
+  h+='</tbody></table></div>';
+  const q=[0,0,0]; peces.forEach(p=>q[Math.floor(p.mes/4)]+=p.imp);
+  if(q.filter(x=>x).length>1){
+    h+='<h3>Per quatrimestre</h3><table><tbody>';
+    [0,1,2].forEach(i=>{if(q[i])h+=`<tr><td>${QUATRIN[i]}</td><td class="n">${eur0(r2(q[i]))}</td></tr>`;});
+    h+='</tbody></table>';
+  }
+  const et=(DESG_BLOCS.find(b=>b[0]===bloc)||['',''])[1];
+  h+='<p class="muted">'+peces.length+' moviment(s) de l’any.</p>';
+  modal(mTitle(nom+' · '+et)+h);
 }
 
 /* ================= VISTA: RESUM ANUAL ================= */
@@ -3274,7 +3400,7 @@ document.addEventListener('keydown',e=>{
 });
 function bindVista(){
   ({avui:bindAvui,dietari:bindDietari,tancament:bindTancament,cc:bindCC,factures:bindFactures,
-    mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig,
+    mes:bindMes,compres:bindCompres,copia:bindCopia,config:bindConfig,desglossament:bindDesglossament,
     resumAnual:bindDietari}[vista]||(()=>{}))();
 }
 aplicaPrivat();   // abans de res: si ho vas deixar amagat, ha d'arrencar amagat

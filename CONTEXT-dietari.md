@@ -93,7 +93,8 @@ número. Les seccions estan marcades amb `/* ===== NOM ===== */`:
 `CONFIGURACIÓ SUPABASE` · `ESTAT I PERSISTÈNCIA` · `AUTENTICACIÓ` · `UTILITATS` · `NAVEGACIÓ` ·
 `MODAL` · `VISTA: AVUI` · `VISTA: DIETARI` · `VISTA: TANCAMENT SETMANAL` · `VISTA: COMPTE CORRENT` ·
 `VISTA: FACTURES` · `VISTA: MÉS` · `VISTA: COMPRES` · `Inventari` · `VISTA: TRESORERIA` ·
-`VISTA: RESUM ANUAL` · `COMPARACIÓ ENTRE ANYS` · `EXPORTACIÓ XLSX` · `VISTA: CÒPIA` ·
+`VISTA: DESGLOSSAMENT DE L'ANY` · `VISTA: RESUM ANUAL` · `COMPARACIÓ ENTRE ANYS` ·
+`EXPORTACIÓ XLSX` · `VISTA: CÒPIA` ·
 `VISTA: CONFIGURACIÓ` · `ARRENCADA`
 
 **Patró de vistes**: cada pantalla té `vXxx()` que retorna HTML i `bindXxx()` que hi lliga els
@@ -128,6 +129,17 @@ no al text: `textXifra()` ho resol. Un camp amb número **no agafa el focus** me
 és oberta (un `pointerdown` en captura ho evita, i així no surt el teclat del mòbil); els camps
 buits sí, que encara els has d'omplir. Amb un modal obert no s'intercepta res: el modal tapa el
 panell i els camps es deixen editar com sempre.
+
+**Desglossament de l'any** (`vDesglossament`, al menú «Més»; va substituir el resum de tresoreria):
+de què estan fets els quatre blocs del resum anual. `pecesAny()` recull en una sola passada totes
+les peces de `rec`/`desp`/`fp`/`fpl` amb el mes on compten, **copiant les mateixes fonts que
+`recDia`, `totalsMes` i `despCCMes`** — si canvies un d'aquells càlculs, canvia també aquest o les
+xifres deixaran de quadrar. El total que es mostra és sempre l'oficial (`totalBloc`), i si les
+peces no hi arriben surt una fila «Resta sense classificar»: si la veus, hi ha una font que falta.
+
+**Pagaments de factures**: per defecte el pagament és el **total de la factura** i el segueix
+mentre no li toquis l'import (`data-auto` a `.pay-imp`); en afegir-ne un altre, ve omplert amb el
+que falta. Un pagament **sense data no es desa**: no compta enlloc i només embrutaria la factura.
 
 **Helpers que ja existeixen (reutilitza'ls, no en facis de nous):**
 `eur(n)` `eur0(n)` `num(v)` `numOrNull(v)` `r2(n)` `esc(s)` `uid()` `dataCA(iso)` `hui()`
