@@ -110,6 +110,21 @@ posta: aguanta els refrescos, però un dia nou tornes a «Avui».
 `modal()` desa l'alçada d'abans d'obrir-se i `tancaModal()` la torna a posar: al mòbil el teclat
 desplaça la pàgina del darrere, i sense això en desar des d'un formulari sorties a dalt de tot.
 
+**Desat i pèrdua de dades** (quatre paranys ja tancats, no els tornis a obrir):
+- `num()` **endevina si un punt és de milers o decimal** per la forma: grups de 3 xifres exactes
+  darrere de cada punt i primer grup d'1 a 3 xifres sense zero inicial = milers. Cal perquè
+  «1.500» l'escrius tu (mil cinc-cents) i «11.00» o «27.3» venen de `toFixed()`. Si hi toques,
+  passa les proves: `1.500`→1500, `11.00`→11, `0.125`→0,125, `1.234,56`→1234,56.
+- `save()` deixa una **marca «brut»** a `localStorage[KEY+'.brut']` lligada a l'id de l'usuari, i
+  `load()` fa guanyar la còpia local si la marca hi és. Sense això, els canvis fets sense cobertura
+  els sobreescrivia el núvol en reobrir l'app. `pushRemote` la neteja quan se'n surt.
+- `remotLlegit`: **`pushRemote` no escriu mai al núvol abans d'haver-lo llegit bé**. Si la càrrega
+  falla, el primer desat hauria substituït totes les dades per l'estat local o buit.
+- El **logout no esborra la còpia local si queden canvis pendents** (pregunta abans de sortir):
+  era l'únic lloc on vivien.
+- A `migraComissio` **no hi pot tornar** el filtre que esborrava línies amb «comiss» al concepte:
+  corria a cada arrencada i es menjava línies noves teves.
+
 **Mode privat**: el botó de l'ull de la capçalera amaga totes les xifres per poder ensenyar l'app
 sense ensenyar els números. `eur()`/`eur0()` retornen «•••» i la classe `body.privat` deixa
 transparents (amb barra grisa) `.num`, `td.n`, `.kpi .v`, `.imp`, `.big`, `.comprec`,

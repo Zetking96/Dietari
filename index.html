@@ -281,6 +281,14 @@ function loadCache(){ try{const r=JSON.parse(localStorage.getItem(KEY)); return 
 function saveCache(){ try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){} }
 function cacheTs(){ return parseInt(localStorage.getItem(KEY+'.ts')||'0',10); }
 function setCacheTs(t){ try{localStorage.setItem(KEY+'.ts',String(t));}catch(e){} }
+/* Marca «tens canvis que encara no han pujat». Ha de viure fora de la memòria (a localStorage),
+   perquè el cas que importa és justament tancar l'app abans que el desat al núvol se'n surti:
+   sense això, en tornar a obrir guanyava la còpia del núvol i el que havies apuntat es perdia. */
+/* La marca va lligada a l'usuari: si algun dia s'entrés amb un altre compte en aquest navegador,
+   la còpia pendent del primer no s'ha de pujar a la fila de l'altre. */
+function marcaBrut(){ try{localStorage.setItem(KEY+'.brut',(sbUser&&sbUser.id)||'1');}catch(e){} }
+function netejaBrut(){ try{localStorage.removeItem(KEY+'.brut');}catch(e){} }
+function esBrut(){ try{const v=localStorage.getItem(KEY+'.brut');return !!v&&v===((sbUser&&sbUser.id)||'1');}catch(e){return false;} }
 
 /* --- indicador de sincronització --- */
 function syncStatus(estat){ // 'ok' verd, 'pendent' taronja, 'error' vermell, 'offline' gris
@@ -291,19 +299,24 @@ function syncStatus(estat){ // 'ok' verd, 'pendent' taronja, 'error' vermell, 'o
 
 /* --- desat al núvol, amb retard per agrupar canvis --- */
 let saveTimer=null, savePending=false;
+/* Mentre no s'hagi llegit bé el que hi ha al núvol, NO s'hi escriu mai. Si la càrrega falla
+   s'arrenca amb la còpia local (o buida) i, sense aquesta pany, el primer desat hauria
+   substituït totes les dades del núvol per aquest estat a mitges. */
+let remotLlegit=false;
 function save(){
-  saveCache();
+  saveCache(); marcaBrut();
   savePending=true; syncStatus('pendent');
   clearTimeout(saveTimer);
   saveTimer=setTimeout(pushRemote,1500);
 }
 async function pushRemote(){
   if(!sbUser){syncStatus('error');return;}
+  if(!remotLlegit){syncStatus(navigator.onLine?'error':'offline');return;}
   const ts=Date.now();
   try{
     const {error}=await sb.from('app_state').upsert({user_id:sbUser.id,data:S,updated_at:new Date(ts).toISOString()});
     if(error)throw error;
-    savePending=false; setCacheTs(ts); syncStatus('ok');
+    savePending=false; setCacheTs(ts); netejaBrut(); syncStatus('ok');
   }catch(e){
     console.error('Desat remot fallit',e);
     syncStatus(navigator.onLine?'error':'offline');
@@ -322,10 +335,12 @@ async function load(){
   const cache=loadCache();
   try{
     const remot=await loadRemote();
+    remotLlegit=true;   // des d'aquí ja sabem què hi ha al núvol i s'hi pot escriure
     if(remot&&remot.data&&remot.data.years){
       const tsRemot=new Date(remot.updated_at).getTime()||0;
-      if(cache&&cacheTs()>tsRemot){ S=cache; await pushRemote(); } // canvis locals més nous (fets sense connexió)
-      else { S=remot.data; setCacheTs(tsRemot); saveCache(); syncStatus('ok'); }
+      // guanya la còpia local si hi ha canvis sense pujar (marca «brut») o si és més nova
+      if(cache&&(esBrut()||cacheTs()>tsRemot)){ S=cache; await pushRemote(); }
+      else { S=remot.data; setCacheTs(tsRemot); netejaBrut(); saveCache(); syncStatus('ok'); }
     } else if(cache){ S=cache; await pushRemote(); } // primera pujada de dades existents
     else { S=estatBuit(); await pushRemote(); }
   }catch(e){
@@ -359,8 +374,12 @@ document.getElementById('loginBtn').addEventListener('click',async()=>{
 document.getElementById('loginPass').addEventListener('keydown',e=>{ if(e.key==='Enter')document.getElementById('loginBtn').click(); });
 document.getElementById('logoutBtn').addEventListener('click',async()=>{
   if(savePending){clearTimeout(saveTimer);await pushRemote();}
+  /* Si el desat no se n'ha sortit, la còpia local és l'únic lloc on viuen aquests canvis:
+     esborrar-la aquí els perdria per sempre. Es pregunta abans de sortir. */
+  if(savePending&&!confirm('Hi ha canvis que encara no s\'han desat al núvol. Si surts ara es perdran.\n\nSegur que vols sortir?'))return;
   await sb.auth.signOut();
-  localStorage.removeItem(KEY); localStorage.removeItem(KEY+'.ts'); esborraPos();
+  if(!savePending){localStorage.removeItem(KEY); localStorage.removeItem(KEY+'.ts'); netejaBrut();}
+  esborraPos();
   location.reload();
 });
 
@@ -495,7 +514,27 @@ function calcAlterna(){ calcObert?calcTanca():calcObre(); }
 const fmtEUR=new Intl.NumberFormat('ca-ES',{style:'currency',currency:'EUR'});
 function eur(n){return privat?MASCARA:((n==null||isNaN(n))?'—':fmtEUR.format(n));}
 function eur0(n){return privat?MASCARA:fmtEUR.format(n||0);}
-function num(v){if(v==null)return 0; if(typeof v==='number')return v; v=String(v).trim().replace(/\./g,m=>m).replace(',','.'); const n=parseFloat(v); return isNaN(n)?0:n;}
+/* Llegeix un import escrit a mà. Al punt se li poden donar dos sentits i cal endevinar quin:
+   «1.500» són mil cinc-cents (separador de milers, com s'escriu aquí), mentre que «11.00» o
+   «27.3» surten de toFixed() i el punt és decimal. Es decideix per la forma: només es tracta de
+   milers si darrere de cada punt hi ha exactament 3 xifres i el primer grup té d'1 a 3 xifres
+   sense començar per zero. Així «1.500»→1500, «11.00»→11, «0.125»→0,125 i «1.234,56»→1234,56.
+   Abans el punt s'ignorava sempre i «1.500» es desava com 1,5. */
+function num(v){
+  if(v==null)return 0;
+  if(typeof v==='number')return v;
+  let s=String(v).trim().replace(/[\s  ]/g,'');
+  if(!s)return 0;
+  const neg=/^[-−]/.test(s);
+  s=s.replace(/^[-−+]/,'');
+  if(s.indexOf(',')>=0)s=s.replace(/\./g,'').replace(',','.');
+  else{
+    const p=s.split('.');
+    if(p.length>1&&/^[1-9]\d{0,2}$/.test(p[0])&&p.slice(1).every(x=>/^\d{3}$/.test(x)))s=p.join('');
+  }
+  const n=parseFloat(s);
+  return isNaN(n)?0:(neg?-n:n);
+}
 function numOrNull(v){const s=String(v??'').trim(); if(s==='')return null; return num(s);}
 function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function hui(){const d=new Date();return iso(d);}
@@ -1607,8 +1646,11 @@ function migraComissio(){
     if(y.comTpvMes==null)y.comTpvMes={};
     Object.values(y.dies||{}).forEach(d=>{
       if(d.comTpv!=null)delete d.comTpv;
-      // Treu línies de comissió d'imports antics que restaven la comissió a la recaptació (doble resta)
-      ['despLines','fpLines','fplLines'].forEach(k=>{if(Array.isArray(d[k]))d[k]=d[k].filter(l=>!/comiss/i.test(l.c||''));});
+      /* Aquí hi havia un filtre que esborrava qualsevol línia amb «comiss» al concepte. Era una
+         neteja puntual de la importació antiga (quan la comissió es restava dues vegades), però
+         corria a CADA arrencada i sobre tots els anys: una línia nova teva de «Comissió bancària»
+         desapareixia en recarregar i la pèrdua pujava al núvol al següent desat. La importació fa
+         mesos que està neta, així que el filtre s'ha tret. No el tornis a posar. */
     });
   });
   const y=S.years&&S.years['2026'];
