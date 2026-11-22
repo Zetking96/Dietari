@@ -125,6 +125,15 @@ desplaça la pàgina del darrere, i sense això en desar des d'un formulari sort
 - A `migraComissio` **no hi pot tornar** el filtre que esborrava línies amb «comiss» al concepte:
   corria a cada arrencada i es menjava línies noves teves.
 
+**Olives: d'on surt el diner.** Cada oliva del catàleg té **com es paga** (`olivesCat[].blocDef`,
+resolt amb `olPagDe()`): `''` = *en factura* (el cost entra per una factura que el Jaume apunta a
+Factures i la compra d'olives **no suma res** al dietari), `'fp'` o `'fpl'` = suma a la setmana.
+Les olives que li facturen van en factura; si no, la compra I la factura comptaven el mateix diner
+dues vegades a FpL. La graella setmanal ve marcada del catàleg i es pot canviar per setmana
+(`olivesCompres[].bloc` mana sobre el catàleg). Canviar-ho a la fitxa ofereix aplicar-ho a les
+compres ja fetes de l'any — això **sí** que mou Fp i FpL. El benefici, els quilos i els €/kg de la
+pestanya Olives no depenen d'això: hi surten sempre.
+
 **Olives: una compra per setmana i per oliva.** És l'únic que el model permet (la graella setmanal
 té una casella per oliva), així que dos registres de la mateixa setmana i oliva són brossa. Abans
 `olivesDiaBloc` els sumava tots i Fp/FpL sortien el doble, mentre la graella i el resum de setmana

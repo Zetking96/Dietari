@@ -2616,9 +2616,9 @@ function vOlives(){
     const bo=b.ben>=0, pes=benAny.ben?100*b.ben/benAny.ben:null;
     return `<td class="n ${bo?'pos':'neg'}">${eur0(b.ben)}</td><td class="n">${pes!=null?pes.toFixed(1)+' %':'—'}</td>`;
   };
-  h+='<div class="card"><h3>Catàleg ('+cat.length+' tipus)</h3><div class="scrollx"><table><thead><tr><th>Nom</th><th>Tipus</th><th class="n">Venda €/kg</th><th class="n">Benefici</th><th class="n">% del total</th></tr></thead><tbody>'+
-    cat.map(p=>`<tr class="clickable" data-olcat="${p.id}"><td>${esc(p.nom)}</td><td>${esc(p.tipus)}</td><td class="n">${p.pv!=null&&p.pv!==''?num(p.pv).toFixed(2):'<span class="muted">—</span>'}</td>`+cellBenProd(p)+'</tr>').join('')+
-    `<tr class="total"><td colspan="3">Benefici de l'any</td><td class="n ${benAny.ben>=0?'pos':'neg'}">${benAny.cost?eur0(benAny.ben):'—'}</td><td class="n">${benAny.cost?'100,0 %':'—'}</td></tr>`+
+  h+='<div class="card"><h3>Catàleg ('+cat.length+' tipus)</h3><div class="scrollx"><table><thead><tr><th>Nom</th><th>Tipus</th><th>Com es paga</th><th class="n">Venda €/kg</th><th class="n">Benefici</th><th class="n">% del total</th></tr></thead><tbody>'+
+    cat.map(p=>`<tr class="clickable" data-olcat="${p.id}"><td>${esc(p.nom)}</td><td>${esc(p.tipus)}</td><td>${olPagCurt(olPagDe(p))}</td><td class="n">${p.pv!=null&&p.pv!==''?num(p.pv).toFixed(2):'<span class="muted">—</span>'}</td>`+cellBenProd(p)+'</tr>').join('')+
+    `<tr class="total"><td colspan="4">Benefici de l'any</td><td class="n ${benAny.ben>=0?'pos':'neg'}">${benAny.cost?eur0(benAny.ben):'—'}</td><td class="n">${benAny.cost?'100,0 %':'—'}</td></tr>`+
     '</tbody></table></div>'+
     `<p class="muted" style="margin:8px 2px 0">El benefici de cada oliva és el de tot l'any ${S.activeYear}, i el % és el tros que li toca del benefici total.`+
     (senseP?` ${senseP} ${senseP===1?'tipus no té':'tipus no tenen'} preu de venda: clica-hi per posar-l’hi i que compti.`:'')+'</p>'+
@@ -2642,11 +2642,35 @@ function olGraellaHTML(){
   h+='</tbody></table></div>';
   return h;
 }
+/* Com es paga una oliva. «fact» (el valor buit a les compres) vol dir que arriba per una factura
+   que apuntes a Factures: la factura és la que compta a FpL, i la compra d'olives no hi suma res.
+   Sense això, qui apuntava la compra I la factura comptava la mateixa oliva dues vegades. */
+const OL_PAG=[['fact','En factura (no suma al dietari)'],['fp','Fp · pagat al moment'],['fpl','FpL · suma al dietari']];
+function olPagNom(b){const v=b||'fact';const o=OL_PAG.find(x=>x[0]===v);return o?o[1]:v;}
+function olPagCurt(b){return !b?'En factura':(b==='fp'?'Fp':'FpL');}
+/* Com es paga una oliva: el que digui la seva fitxa, i si encara no s'hi ha dit mai, el que facin
+   les seves compres. Si no, la fitxa diria «en factura» mentre les compres sumen a FpL. */
+function olPagDe(p){
+  if(!p)return '';
+  if(p.blocDef!=null)return p.blocDef;
+  const compta={}; let millor='', n=0;
+  (Y().olivesCompres||[]).filter(x=>x.prod===p.id).forEach(x=>{
+    const k=x.bloc||''; compta[k]=(compta[k]||0)+1;
+    if(compta[k]>n){n=compta[k];millor=k;}
+  });
+  return millor;
+}
+function olBlocDef(prodId){return olPagDe((Y().olivesCat||[]).find(x=>x.id===prodId));}
 function formOlivaCat(p){
   const nou=!p; p=p||{tipus:'Granel',nom:''};
+  const pagAra=olPagDe(p);
+  const nCompres=p.id?Y().olivesCompres.filter(c=>c.prod===p.id).length:0;
   modal(mTitle(nou?'Nou tipus':'Edita tipus')+`
     <label>Nom</label><input id="o_nom" value="${esc(p.nom)}">
     <label>Tipus</label><select id="o_tipus">${['Granel','Llaunes'].map(t=>`<option ${t===p.tipus?'selected':''}>${t}</option>`).join('')}</select>
+    <label for="o_pag">Com es paga</label>
+    <select id="o_pag">${OL_PAG.map(([v,t])=>`<option value="${v==='fact'?'':v}" ${(v==='fact'?'':v)===pagAra?'selected':''}>${t}</option>`).join('')}</select>
+    <p class="muted" style="margin:4px 0">Si aquesta oliva te la facturen, deixa-ho a <b>En factura</b>: el cost entrarà per la factura que apuntes a Factures i la compra d'olives no sumarà res al dietari. Així no es compta dues vegades.</p>
     <label>Preu de venda (€/kg)</label><input id="o_pv" class="num" inputmode="decimal" value="${p.pv??''}">
     <p class="muted" style="margin:4px 0">És el que fas servir per calcular el benefici dels totals de l'any. Deixa-ho buit si encara no el saps: aquesta oliva no comptarà al benefici.</p>
     <button class="primary" id="o_desa">Desa</button>
@@ -2654,10 +2678,17 @@ function formOlivaCat(p){
   `,el=>{
     el.querySelector('#o_desa').addEventListener('click',()=>{
       const obj={id:p.id||uid(),nom:el.querySelector('#o_nom').value.trim(),tipus:el.querySelector('#o_tipus').value,
-        pv:numOrNull(el.querySelector('#o_pv').value),ord:p.ord};
+        pv:numOrNull(el.querySelector('#o_pv').value),blocDef:el.querySelector('#o_pag').value,ord:p.ord};
       if(!obj.nom){alert('Falta el nom.');return;}
       if(obj.ord==null)obj.ord=Y().olivesCat.reduce((m,x)=>Math.max(m,x.ord==null?-1:x.ord),-1)+1;
       if(p.id){const i=Y().olivesCat.findIndex(x=>x.id===p.id);Y().olivesCat[i]=obj;}else Y().olivesCat.push(obj);
+      // ofereix arreglar el passat: les compres ja fetes mantenen la marca que tenien
+      if(p.id&&obj.blocDef!==pagAra&&nCompres){
+        const altres=Y().olivesCompres.filter(c=>c.prod===p.id&&(c.bloc||'')!==obj.blocDef);
+        const quantes=altres.length===1?'a la compra':'a les '+altres.length+' compres';
+        if(altres.length&&confirm('Aplicar «'+olPagNom(obj.blocDef)+'» també '+quantes+' de '+obj.nom+' de '+S.activeYear+'?\n\nAixò sí que mou les xifres de Fp i FpL.'))
+          altres.forEach(c=>{c.bloc=obj.blocDef;});
+      }
       save();tancaModal();render();
     });
     const del=el.querySelector('#o_del');
@@ -2714,16 +2745,16 @@ function formSetmanaOlives(setISO){
   const set=setISO||ctx.setOl||defaultSet();
   const recs=olivesNetes().filter(c=>c.set===set);
   const cur={};recs.forEach(c=>cur[c.prod]=c);
-  const blocSel=b=>`<select class="oc_bloc" style="width:100%"><option value="">—</option><option value="fp" ${b==='fp'?'selected':''}>Fp</option><option value="fpl" ${b==='fpl'?'selected':''}>FpL</option></select>`;
+  const blocSel=b=>`<select class="oc_bloc" style="width:100%">${OL_PAG.map(([v,t])=>{const val=v==='fact'?'':v;return `<option value="${val}" ${val===(b||'')?'selected':''}>${olPagCurt(val)}</option>`;}).join('')}</select>`;
   const rows=cat.map(p=>{const c=cur[p.id];
     return `<tr data-prod="${p.id}"><td style="padding:3px 4px">${esc(p.nom)}<br><span class="muted">${esc(p.tipus)}</span></td>
       <td style="padding:3px 2px"><input class="num oc_q" inputmode="decimal" value="${c?(c.quant??''):''}" style="width:100%"></td>
       <td style="padding:3px 2px"><input class="num oc_i" inputmode="decimal" value="${c?(c.imp??''):''}" style="width:100%"></td>
       <td class="n oc_pkg" style="padding:3px 4px;white-space:nowrap">${c?pkg(c.imp,c.quant):'—'}</td>
-      <td style="padding:3px 2px">${blocSel(c?c.bloc:'')}</td></tr>`;}).join('');
+      <td style="padding:3px 2px">${blocSel(c?c.bloc:olBlocDef(p.id))}</td></tr>`;}).join('');
   modal(mTitle('Setmana '+olSetLabel(set))+`
-    <p class="muted">Per cada tipus, posa la <b>quantitat</b> i el <b>cost</b>. Marca <b>Fp/FpL</b> perquè l'import sumi a Fp o FpL de la setmana al dietari.</p>
-    <div class="scrollx" style="max-height:55vh;overflow-y:auto"><table style="font-size:.82rem"><thead><tr><th style="text-align:left">Tipus</th><th class="n">Quant.</th><th class="n">Cost €</th><th class="n">€/kg</th><th class="n">Fp/FpL</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="muted">Per cada tipus, posa la <b>quantitat</b> i el <b>cost</b>. L'última columna diu d'on surt el diner: <b>En factura</b> (el cost ve per la factura que apuntes a Factures i aquí no suma res) o <b>Fp/FpL</b> (suma a la setmana del dietari). Ve posada del catàleg.</p>
+    <div class="scrollx" style="max-height:55vh;overflow-y:auto"><table style="font-size:.82rem"><thead><tr><th style="text-align:left">Tipus</th><th class="n">Quant.</th><th class="n">Cost €</th><th class="n">€/kg</th><th class="n">D'on surt</th></tr></thead><tbody>${rows}</tbody></table></div>
     <button class="primary" id="se_desa" style="margin-top:10px;width:100%">Desa la setmana</button>
   `,el=>{
     el.querySelectorAll('tr[data-prod]').forEach(tr=>{
