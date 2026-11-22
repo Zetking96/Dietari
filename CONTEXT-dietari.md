@@ -110,6 +110,25 @@ posta: aguanta els refrescos, però un dia nou tornes a «Avui».
 `modal()` desa l'alçada d'abans d'obrir-se i `tancaModal()` la torna a posar: al mòbil el teclat
 desplaça la pàgina del darrere, i sense això en desar des d'un formulari sorties a dalt de tot.
 
+**Vincles entre factures, compres i banc** (paranys tancats):
+- `formFactura` desa amb `Object.assign({},f,{…camps del formulari})`: **no muntis l'objecte de
+  zero**. Fent-ho es perdien `auto`/`srcType`/`srcId`, la factura d'una compra es desvinculava i en
+  tornar a desar la compra se'n creava una segona: la despesa comptava dues vegades.
+- `syncFacturaSrc` amb import 0 crida `esborraApuntsBanc` abans de treure la factura; si no,
+  quedaven apunts del banc orfes que ja no es podien netejar per cap camí.
+- Esborrar un apunt del banc amb `srcPag` desmarca el `banc` del pagament que el va crear; si no,
+  reapareixia el proper cop que es desava la factura.
+- Els botons de desar que tenen una pujada de fitxer al mig (`#x_desa`, `#cp_desa`) es bloquegen
+  mentre puja i es tornen a activar a cada sortida: dos tocs creaven dos registres.
+- **Anys històrics**: el botó `+` no surt (`esHistoric()` a `render`). El que s'hi apuntés a Banc,
+  Factures o Compres es desava i no comptava a cap total, perquè aquells anys surten de `HISTORIC`.
+- `migra()` **completa cada any amb els camps d'`anyBuit()` que li falten**, i la restauració d'una
+  còpia hi passa (i rebutja el fitxer si `activeYear` no és a `years`). Una còpia d'un format antic
+  feia petar Compres i el Resum anual.
+- La marca de `migraComissio` viu a `S._comMes26`, **no dins de l'any**: amb la marca a dins,
+  «Esborra totes les dades» feia que es tornessin a injectar les comissions sobre un 2026 buit i la
+  recaptació de gener a juny sortia negativa.
+
 **Desat i pèrdua de dades** (quatre paranys ja tancats, no els tornis a obrir):
 - `num()` **endevina si un punt és de milers o decimal** per la forma: grups de 3 xifres exactes
   darrere de cada punt i primer grup d'1 a 3 xifres sense zero inicial = milers. Cal perquè

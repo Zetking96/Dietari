@@ -7,7 +7,7 @@
 <!-- CSP: 'unsafe-inline' a script-src cal perquè tota la lògica de l'app és un únic <script>
      inline (sense pas de build); es compensa restringint estrictament d'on es pot carregar
      res més (connect-src, object-src, base-uri, frame-ancestors). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://*.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://gljerdptrvwutzncvdud.supabase.co; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -726,7 +726,8 @@ function factDiaBloc(ds,bloc){return factPagsDia(ds).filter(x=>factBlock(x.f)===
 function nextFacturaNum(){return Y().factures.reduce((m,x)=>Math.max(m,num(x.num)),0)+1;}
 function syncFacturaSrc(t,id,o){ // o={imp,dataISO,categoria,empresa,concepte}
   let f=Y().factures.find(x=>x.auto&&x.srcType===t&&x.srcId===id);
-  if(o.imp==null||num(o.imp)===0){ if(f)Y().factures=Y().factures.filter(x=>x!==f); return; }
+  // si la compra es queda sense import, fora la factura I els apunts que havia deixat al banc
+  if(o.imp==null||num(o.imp)===0){ if(f){esborraApuntsBanc(f.id);Y().factures=Y().factures.filter(x=>x!==f);} return; }
   const pagat=!!o.dataISO;
   const base={imp:num(o.imp),categoria:o.categoria||'Despeses',empresa:(o.empresa||'').trim(),concepte:o.concepte||'',
     estat:pagat?'Pagat':'Pendent',dataPagISO:pagat?o.dataISO:'',mode:'Taló',talo:'',obs:'',auto:true,srcType:t,srcId:id};
@@ -1021,7 +1022,10 @@ function render(opts){
     b.classList.toggle('on',b.dataset.v===grup);
   });
   const fab=$('#fab');
-  fab.style.display=(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.sub!=='inventari'))?'block':'none';
+  /* Als anys històrics (2020–2025) les xifres venen de la constant HISTORIC i res del que
+     s'apunti a Banc, Factures o Compres compta a cap total: millor no deixar-ho apuntar. */
+  const potAfegir=!esHistoric()&&(['cc','factures'].includes(vista)||(vista==='compres'&&ctx.sub!=='inventari'));
+  fab.style.display=potAfegir?'block':'none';
   $('#calcBtn').style.display='block';   // la calculadora és a totes les pestanyes
   $('#view').innerHTML=VISTES[vista]();
   bindVista();
@@ -1067,12 +1071,12 @@ function lineBlockHTML(key){
   let h=`<div class="lineblk" data-blk="${key}"><div class="lbhead"><span class="lbtitle">${def.lab}</span><span class="num lbsum" id="sum_${key}">${eur0(lineSum(arr.map(l=>({imp:l.imp}))))}</span></div>`;
   arr.forEach((l,i)=>{
     h+=`<div class="lrow" data-k="${key}" data-i="${i}">
-      <input class="num li-imp" inputmode="decimal" placeholder="0,00" value="${l.imp??''}">
+      <input class="num li-imp" inputmode="decimal" placeholder="0,00" value="${esc(l.imp??'')}">
       <input class="li-c" placeholder="concepte" value="${esc(l.c||'')}" list="dl_concepte_${key}">
       <label class="li-reclbl" title="Compta com a recaptació"><input type="checkbox" class="li-rec" ${l.rec?'checked':''}> rec</label>
       <button class="small li-del" type="button" aria-label="Esborra la línia">✕</button>
       <div class="li-qty">
-        <input class="num li-quant" inputmode="decimal" placeholder="quant." value="${l.quant??''}">
+        <input class="num li-quant" inputmode="decimal" placeholder="quant." value="${esc(l.quant??'')}">
         <input class="li-unitat" placeholder="unitat (caixes, kg…)" value="${esc(l.unitat||'')}" list="dl_unitats">
       </div>
     </div>`;
@@ -1640,6 +1644,12 @@ function migra(){
   Object.keys(HISTORIC).forEach(a=>{if(!S.years[a])S.years[a]=anyBuit();});
   // «Altres» va passar de ser només un llistat d'inventari a ser un tipus de compra amb factures
   Object.values(S.years||{}).forEach(y=>{if(!Array.isArray(y.altres))y.altres=[];});
+  /* Completa cada any amb els camps que l'app dona per fets. Cal per a les còpies restaurades
+     d'un format antic: sense olivesCat o setmMes, pintar Compres o el Resum anual petava. */
+  Object.values(S.years||{}).forEach(y=>{
+    const buit=anyBuit();
+    Object.keys(buit).forEach(k=>{ if(y[k]==null)y[k]=buit[k]; });
+  });
   if(S.compresNoms&&S.compresNoms.inventari&&!S.compresNoms.altres){S.compresNoms.altres=S.compresNoms.inventari;delete S.compresNoms.inventari;}
   const byName={}; ccCats().forEach(c=>byName[c.nom.toLowerCase()]=c.id);
   Object.values(S.years||{}).forEach(y=>{(y.cc||[]).forEach(m=>{
@@ -1693,10 +1703,14 @@ function migraComissio(){
          mesos que està neta, així que el filtre s'ha tret. No el tornis a posar. */
     });
   });
+  /* La marca va a S i no dins de l'any: «Esborra totes les dades» buida l'any i, amb la marca a
+     dins, la migració tornava a injectar les comissions sobre un 2026 buit i la recaptació de
+     gener a juny sortia negativa. Es respecta la marca antiga per no injectar-les dues vegades. */
   const y=S.years&&S.years['2026'];
-  if(y&&!y._comMes26){
+  if(y&&y._comMes26)S._comMes26=true;
+  if(y&&!S._comMes26){
     Object.keys(COM_TPV_2026).forEach(m=>{if(y.comTpvMes[m]==null)y.comTpvMes[m]=COM_TPV_2026[m];});
-    y._comMes26=true;
+    S._comMes26=true;
   }
 }
 /* Migra compres d'un sol producte (bacallà/conserva antics) a factura amb llista de productes. Idempotent. */
@@ -1865,7 +1879,17 @@ function formCC(m){
       save();tancaModal();go('cc',{mes:ccAnyMesDe(obj).mes});
     });
     const del=el.querySelector('#c_del');
-    if(del)del.addEventListener('click',()=>{if(confirm('Eliminar aquest moviment?')){Y().cc=Y().cc.filter(x=>x.id!==m.id);save();tancaModal();render();}});
+    if(del)del.addEventListener('click',()=>{
+      if(!confirm('Eliminar aquest moviment?'))return;
+      /* Si l'apunt ve d'un pagament de factura, cal desmarcar-li la casella «apunt al banc»:
+         si no, la propera vegada que es desi la factura l'apunt tornaria a aparèixer. */
+      if(m.srcFact&&m.srcPag){
+        const fa=Y().factures.find(x=>x.id===m.srcFact);
+        const pg=fa&&(fa.pagaments||[]).find(p=>p.id===m.srcPag);
+        if(pg)pg.banc=false;
+      }
+      Y().cc=Y().cc.filter(x=>x.id!==m.id);save();tancaModal();render();
+    });
   });
 }
 function dataDefecte(){const h=hui();return h.slice(0,4)===S.activeYear?h:S.activeYear+'-01-01';}
@@ -1995,21 +2019,31 @@ function formFactura(f){
   `,el=>{
     const readPagaments=bindPaysSection(el,()=>el.querySelector('#x_imp').value);
     const aplicaPdf=bindPdfFormat(el,f);
-    el.querySelector('#x_desa').addEventListener('click',async()=>{
+    el.querySelector('#x_desa').addEventListener('click',async(ev)=>{
+      /* El desat té una pujada de fitxer al mig: sense bloquejar el botó, dos tocs creaven dues
+         factures (l'objecte s'afegeix després de l'await). */
+      const bt=ev.currentTarget; if(bt.disabled)return;
+      bt.disabled=true; const etiq=bt.textContent; bt.textContent='Desant…';
+      const deixa=()=>{bt.disabled=false;bt.textContent=etiq;};
       const pagaments=readPagaments();
-      if(pagaments.some(p=>num(p.imp)&&!p.data)){alert('Hi ha un pagament amb import però sense data.');return;}
-      const obj={id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),
+      if(pagaments.some(p=>num(p.imp)&&!p.data)){deixa();alert('Hi ha un pagament amb import però sense data.');return;}
+      /* Es parteix de la factura que hi havia i només s'hi canvien els camps del formulari: així
+         no es perd res que el formulari no ensenyi (auto, srcType, srcId...). Abans es muntava
+         l'objecte de zero i desar la factura d'una compra la desvinculava: en tornar a desar la
+         compra se'n creava una segona i la despesa comptava dues vegades. */
+      const obj=Object.assign({},f,{id:f.id||uid(),num:numOrNull(el.querySelector('#x_num').value),
         empresa:el.querySelector('#x_emp').value.trim(),imp:numOrNull(el.querySelector('#x_imp').value),
         concepte:el.querySelector('#x_conc').value,categoria:el.querySelector('#x_cat').value,
         mode:el.querySelector('#x_mode').value,recDia:!!f.recDia,
-        obs:el.querySelector('#x_obs').value.trim(),format:f.format||'',pdf:f.pdf||''};
-      if(obj.imp==null){alert('Falta l\'import total.');return;}
+        obs:el.querySelector('#x_obs').value.trim(),format:f.format||'',pdf:f.pdf||''});
+      if(obj.imp==null){deixa();alert('Falta l\'import total.');return;}
       if(obj.num!=null){ // avisa si el número ja el fa servir una altra factura
         const dup=Y().factures.find(x=>num(x.num)===obj.num&&x.id!==obj.id);
-        if(dup&&!confirm('Ja hi ha una altra factura amb el número '+obj.num+(dup.empresa?' ('+dup.empresa+')':'')+'.\n\nVols desar-la igualment amb aquest número?'))return;
+        if(dup&&!confirm('Ja hi ha una altra factura amb el número '+obj.num+(dup.empresa?' ('+dup.empresa+')':'')+'.\n\nVols desar-la igualment amb aquest número?')){deixa();return;}
       }
       aplicaPagaments(obj,pagaments);           // pagaments + estat (Pendent/Parcial/Pagat) + compat
-      await aplicaPdf(obj);
+      try{ await aplicaPdf(obj); }
+      catch(e){ deixa(); alert('No s\'ha pogut pujar el fitxer. La factura no s\'ha desat; torna-ho a provar.'); return; }
       if(f.id){const i=Y().factures.findIndex(x=>x.id===f.id);Y().factures[i]=obj;}else Y().factures.push(obj);
       sincronitzaApuntsBanc(obj);
       save();tancaModal();render();
@@ -3327,8 +3361,10 @@ function bindCopia(){
     const r=new FileReader();
     r.onload=async()=>{try{const d=JSON.parse(r.result);
       if(!d.years||!d.activeYear)throw 0;
+      if(!d.years[d.activeYear])throw 0;
       if(!confirm('Substituir totes les dades actuals per les del fitxer?'))return;
-      S=d; saveCache(); pintaAnys(); go('avui');
+      // migra(): una còpia d'un format antic no té els camps que l'app dona per fets i petaria
+      S=d; migra(); saveCache(); pintaAnys(); go('avui');
       // puja immediatament al núvol i espera; així la còpia no es pot perdre en recarregar
       clearTimeout(saveTimer); savePending=true; syncStatus('pendent');
       await pushRemote();
