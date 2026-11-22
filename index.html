@@ -1649,6 +1649,23 @@ function migra(){
   migraCompres();
   migraComissio();
   migraProveidors();
+  migraOlivesFactura();
+}
+/* Les olives ja no poden anar a FpL: les que el proveïdor factura entren per la factura, i
+   marcar-les FpL feia comptar el mateix diner dues vegades. Tot el que quedi com a 'fpl' passa a
+   'en factura'. No cal bandera: 'fpl' ja no és un valor que es pugui triar, així que tot el que
+   n'aparegui és d'abans (per exemple d'una còpia restaurada). Es deixa constància de quant s'ha
+   mogut perquè la pestanya Olives ho pugui dir. */
+function migraOlivesFactura(){
+  let n=0, imp=0;
+  Object.values(S.years||{}).forEach(y=>{
+    (y.olivesCat||[]).forEach(p=>{if(p.blocDef==='fpl')p.blocDef='';});
+    (y.olivesCompres||[]).forEach(c=>{if(c.bloc==='fpl'){c.bloc='';n++;imp+=num(c.imp);}});
+  });
+  if(n){
+    const abans=S._olFactAvis||{n:0,imp:0};
+    S._olFactAvis={n:abans.n+n,imp:r2(abans.imp+imp)};
+  }
 }
 /* Unifica proveïdors amb grafies diferents detectades a les dades ("Olivas center" / "Olivas Center").
    Afegeix-hi més entrades si es detecten altres duplicats. Idempotent. */
@@ -2557,6 +2574,16 @@ function vOlives(){
   const set=ctx.setOl||defaultSet(); ctx.setOl=set;
   const mes=olMes(set);
   let h='';
+  /* Avís d'una sola vegada: quantes olives s'han passat de FpL a «en factura» i quants euros
+     han sortit de FpL. Serveix per poder-ho quadrar amb les factures. */
+  const av=S._olFactAvis;
+  if(av&&av.n){
+    h+='<div class="warn"><b>'+(av.n===1?'Una compra d\'olives':av.n+' compres d\'olives')+' que estaven a FpL '+
+      (av.n===1?'ha':'han')+' passat a «En factura».</b> '+
+      'Són '+eur0(av.imp)+' que ja no sumen a FpL al dietari: el cost entra per les factures que apuntes a Factures. '+
+      'Les olives que paguis al moment, posa-les a <b>Fp</b> a la seva fitxa del catàleg.'+
+      '<div style="margin-top:8px"><button class="small" id="olAvisOk">Entesos</button></div></div>';
+  }
   /* Si queden registres repetits (brossa d'edicions antigues), es diuen pel seu nom: ja no compten
      a Fp/FpL, però fins que no es treguin, el fitxer els arrossega. */
   const dups=olivesDuplicades();
@@ -2645,7 +2672,7 @@ function olGraellaHTML(){
 /* Com es paga una oliva. «fact» (el valor buit a les compres) vol dir que arriba per una factura
    que apuntes a Factures: la factura és la que compta a FpL, i la compra d'olives no hi suma res.
    Sense això, qui apuntava la compra I la factura comptava la mateixa oliva dues vegades. */
-const OL_PAG=[['fact','En factura (no suma al dietari)'],['fp','Fp · pagat al moment'],['fpl','FpL · suma al dietari']];
+const OL_PAG=[['fact','En factura (no suma al dietari)'],['fp','Fp · pagat al moment']];
 function olPagNom(b){const v=b||'fact';const o=OL_PAG.find(x=>x[0]===v);return o?o[1]:v;}
 function olPagCurt(b){return !b?'En factura':(b==='fp'?'Fp':'FpL');}
 /* Com es paga una oliva: el que digui la seva fitxa, i si encara no s'hi ha dit mai, el que facin
@@ -2790,6 +2817,8 @@ function bindCompres(){
   document.querySelectorAll('[data-olcat]').forEach(el=>el.addEventListener('click',()=>formOlivaCat(Y().olivesCat.find(x=>x.id===el.dataset.olcat))));
   document.querySelectorAll('[data-navsetol]').forEach(b=>b.addEventListener('click',()=>go('compres',{tab:'olives',setOl:navSet(ctx.setOl||defaultSet(),parseInt(b.dataset.navsetol)),olGrid:ctx.olGrid,olGridMode:ctx.olGridMode})));
   const es=$('#editSet'); if(es)es.addEventListener('click',()=>formSetmanaOlives(ctx.setOl));
+  const ok=$('#olAvisOk');
+  if(ok)ok.addEventListener('click',()=>{delete S._olFactAvis;save();go('compres',{...ctx,tab:'olives'});});
   const on=$('#olNeteja');
   if(on)on.addEventListener('click',()=>{
     const dups=olivesDuplicades();

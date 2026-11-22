@@ -125,14 +125,23 @@ desplaça la pàgina del darrere, i sense això en desar des d'un formulari sort
 - A `migraComissio` **no hi pot tornar** el filtre que esborrava línies amb «comiss» al concepte:
   corria a cada arrencada i es menjava línies noves teves.
 
-**Olives: d'on surt el diner.** Cada oliva del catàleg té **com es paga** (`olivesCat[].blocDef`,
-resolt amb `olPagDe()`): `''` = *en factura* (el cost entra per una factura que el Jaume apunta a
-Factures i la compra d'olives **no suma res** al dietari), `'fp'` o `'fpl'` = suma a la setmana.
-Les olives que li facturen van en factura; si no, la compra I la factura comptaven el mateix diner
-dues vegades a FpL. La graella setmanal ve marcada del catàleg i es pot canviar per setmana
-(`olivesCompres[].bloc` mana sobre el catàleg). Canviar-ho a la fitxa ofereix aplicar-ho a les
-compres ja fetes de l'any — això **sí** que mou Fp i FpL. El benefici, els quilos i els €/kg de la
-pestanya Olives no depenen d'això: hi surten sempre.
+**Olives: d'on surt el diner.** Només hi ha **dues** opcions (`OL_PAG`), i **FpL no n'és una**:
+- `''` = *en factura*: el cost entra per una factura que el Jaume apunta a Factures, i la compra
+  d'olives **no suma res** al dietari. És el cas normal.
+- `'fp'` = pagada al moment: suma a Fp de la setmana.
+
+Es desa a `olivesCat[].blocDef` (es resol amb `olPagDe()`, que mentre la fitxa no digui res mira
+què fan les seves compres) i la graella setmanal ve marcada d'allà; `olivesCompres[].bloc` mana
+sobre el catàleg per a una setmana concreta. Canviar-ho a la fitxa ofereix aplicar-ho a les compres
+ja fetes de l'any — això **sí** que mou Fp i FpL.
+
+**`migraOlivesFactura()`** passa a *en factura* tot el que quedi com a `'fpl'`, a cada arrencada i
+sense bandera: `'fpl'` ja no es pot triar, així que tot el que n'aparegui és d'abans (una còpia
+restaurada, per exemple). Deixa a `S._olFactAvis` quantes compres i quants euros s'han mogut, i la
+pestanya Olives ho diu fins que es prem «Entesos». **No tornis a afegir FpL a les olives**: marcar
+una oliva facturada com a FpL feia comptar el mateix diner dues vegades.
+
+El benefici, els quilos i els €/kg de la pestanya Olives no depenen de res d'això: hi surten sempre.
 
 **Olives: una compra per setmana i per oliva.** És l'únic que el model permet (la graella setmanal
 té una casella per oliva), així que dos registres de la mateixa setmana i oliva són brossa. Abans
