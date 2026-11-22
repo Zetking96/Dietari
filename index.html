@@ -746,7 +746,30 @@ function despCCDiaRec(ds){return despCCDia(ds).filter(m=>m.recDia).reduce((s,m)=
 function lineSum(a){return (a||[]).reduce((s,l)=>s+num(l.imp),0);}        // suma imports
 function lineRec(a){return (a||[]).reduce((s,l)=>s+(l.rec?num(l.imp):0),0);} // suma només línies marcades rec
 /* Olives marcades Fp/FpL sumen al dietari, atribuïdes al dissabte de la seva setmana */
-function olivesDiaBloc(ds,bloc){return ds?(Y().olivesCompres||[]).filter(c=>c.bloc===bloc&&c.set&&olDissabte(c.set)===ds).reduce((s,c)=>s+num(c.imp),0):0;}
+/* ---- Una compra d'olives per setmana i per oliva ----
+   És l'únic que el model permet: la graella setmanal té una sola casella per oliva. Si al fitxer
+   hi ha més d'un registre per la mateixa setmana i oliva, és brossa d'una edició antiga (canviar
+   el producte d'una compra deixava el registre vell al seu lloc), i comptar-los tots feia sortir
+   Fp i FpL el doble. TOTES les lectures passen per `olivesNetes()`; només les escriptures toquen
+   `Y().olivesCompres` directament. `olivesDuplicades()` és el que la pestanya Olives et mostra. */
+function olivesNetes(){
+  const vist={}, out=[];
+  (Y().olivesCompres||[]).forEach(c=>{
+    const k=(c.set||'')+'|'+(c.prod||'');
+    if(vist[k])return;
+    vist[k]=1; out.push(c);
+  });
+  return out;
+}
+function olivesDuplicades(){
+  const vist={}, dup=[];
+  (Y().olivesCompres||[]).forEach(c=>{
+    const k=(c.set||'')+'|'+(c.prod||'');
+    if(vist[k])dup.push(c); else vist[k]=1;
+  });
+  return dup;
+}
+function olivesDiaBloc(ds,bloc){return ds?olivesNetes().filter(c=>c.bloc===bloc&&c.set&&olDissabte(c.set)===ds).reduce((s,c)=>s+num(c.imp),0):0;}
 function dFp(d,ds){return (d?lineSum(d.fpLines):0)+factDiaBloc(ds,'fp')+olivesDiaBloc(ds,'fp');}
 function dFpl(d,ds){return (d?lineSum(d.fplLines):0)+factDiaBloc(ds,'fpl')+olivesDiaBloc(ds,'fpl');}
 function dDesp(d,ds){return (d?lineSum(d.despLines):0)+factDiaBloc(ds,'desp');}
@@ -1223,12 +1246,12 @@ function liniesCamp(ds,camp){
   else if(camp==='fp'){
     (d&&d.fpLines||[]).forEach(l=>out.push({desc:l.c||'Fp del dia',imp:num(l.imp),rec:!!l.rec}));
     factPagsDia(ds).filter(x=>factBlock(x.f)==='fp').forEach(x=>out.push({desc:'Factura #'+(x.f.num??'')+' '+(x.f.empresa||x.f.concepte||'')+(x.talo?' · taló '+x.talo:''),imp:num(x.imp),rec:!!x.f.recDia}));
-    (Y().olivesCompres||[]).filter(c=>c.bloc==='fp'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
+    olivesNetes().filter(c=>c.bloc==='fp'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
   }
   else if(camp==='fpl'){
     (d&&d.fplLines||[]).forEach(l=>out.push({desc:l.c||'FpL del dia',imp:num(l.imp),rec:!!l.rec}));
     factPagsDia(ds).filter(x=>factBlock(x.f)==='fpl').forEach(x=>out.push({desc:'Factura #'+(x.f.num??'')+' '+(x.f.empresa||x.f.concepte||'')+(x.talo?' · taló '+x.talo:''),imp:num(x.imp),rec:!!x.f.recDia}));
-    (Y().olivesCompres||[]).filter(c=>c.bloc==='fpl'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
+    olivesNetes().filter(c=>c.bloc==='fpl'&&c.set&&olDissabte(c.set)===ds).forEach(c=>out.push({desc:'Olives · '+catOl(c.prod),imp:num(c.imp)}));
   }
   else if(camp==='desp'){
     (d&&d.despLines||[]).forEach(l=>out.push({desc:l.c||'Despeses del dia',imp:num(l.imp),rec:!!l.rec}));
@@ -2293,7 +2316,7 @@ function provResumHTML(nm){
 function obreProvResum(nm){modal(mTitle(nm)+provResumHTML(nm),el=>bindResumLinks(el));}
 /* Resum d'una oliva del catàleg: totes les seves compres setmanals */
 function olivaResumHTML(prodId){
-  const ls=(Y().olivesCompres||[]).filter(c=>c.prod===prodId).sort((a,b)=>(a.set||'')<(b.set||'')?1:-1);
+  const ls=olivesNetes().filter(c=>c.prod===prodId).sort((a,b)=>(a.set||'')<(b.set||'')?1:-1);
   const q=ls.reduce((s,c)=>s+num(c.quant),0), im=ls.reduce((s,c)=>s+num(c.imp),0);
   let h=`<div class="recline"><span class="l">Total comprat</span><span class="v num">${q.toLocaleString('ca-ES')} · ${eur0(im)}</span></div>`;
   h+=`<div class="recline"><span class="l">Cost mitjà</span><span class="v num">${q?(im/q).toFixed(2)+' €/kg':'—'}</span></div>`;
@@ -2533,9 +2556,24 @@ function vOlives(){
   if(!cat.length)return '<div class="card muted">Encara no hi ha catàleg d\'olives. Ves a <b>Configuració → Olives</b> i prem «Inicialitza olives» per carregar els tipus.</div>';
   const set=ctx.setOl||defaultSet(); ctx.setOl=set;
   const mes=olMes(set);
-  let h=`<div class="monthbar"><button class="small" data-navsetol="-7">‹</button><span class="m" style="font-size:.85rem;text-transform:none">Setmana ${olSetLabel(set)}</span><button class="small" data-navsetol="7">›</button></div>`;
+  let h='';
+  /* Si queden registres repetits (brossa d'edicions antigues), es diuen pel seu nom: ja no compten
+     a Fp/FpL, però fins que no es treguin, el fitxer els arrossega. */
+  const dups=olivesDuplicades();
+  if(dups.length){
+    const llista=dups.map(c=>{
+      const p=Y().olivesCat.find(x=>x.id===c.prod);
+      return ((p&&p.nom)||'oliva')+', setmana del '+dataCA(c.set)+' ('+eur0(num(c.imp))+')';
+    });
+    const titol=dups.length>1?dups.length+' compres d\'olives repetides.':'Una compra d\'olives repetida.';
+    h+='<div class="warn"><b>'+titol+'</b> '+
+      'Només hi pot haver una compra per oliva i setmana. '+(dups.length>1?'Aquestes sobren':'Aquesta sobra')+' i <b>ja no compta'+(dups.length>1?'n':'')+'</b> a Fp ni a FpL:<br>'+
+      llista.map(t=>'· '+esc(t)).join('<br>')+
+      '<div style="margin-top:8px"><button class="small" id="olNeteja">Treu les repetides</button></div></div>';
+  }
+  h+=`<div class="monthbar"><button class="small" data-navsetol="-7">‹</button><span class="m" style="font-size:.85rem;text-transform:none">Setmana ${olSetLabel(set)}</span><button class="small" data-navsetol="7">›</button></div>`;
   h+='<button id="editSet" class="primary" style="width:100%;margin-bottom:12px">Edita compres d\'aquesta setmana</button>';
-  const wr=Y().olivesCompres.filter(c=>c.set===set);
+  const wr=olivesNetes().filter(c=>c.set===set);
   if(!wr.length)h+='<div class="card muted">Cap compra registrada aquesta setmana.</div>';
   else{
     let tw=0;
@@ -2544,7 +2582,7 @@ function vOlives(){
       h+=`<tr class="clickable" data-ol="${c.id}"><td><span style="${PLNK}" data-olresum="${p.id}">${esc(p.nom)}</span> <span class="muted">${esc(p.tipus)}</span></td><td class="n">${num(c.quant).toLocaleString('ca-ES')}</td><td class="n">${eur0(num(c.imp))}</td><td class="n">${pkg(c.imp,c.quant)}</td></tr>`;});
     h+=`<tr class="total"><td>Total setmana</td><td></td><td class="n">${eur0(tw)}</td><td></td></tr></tbody></table></div>`;
   }
-  const mr=Y().olivesCompres.filter(c=>c.set&&olMes(c.set)===mes);
+  const mr=olivesNetes().filter(c=>c.set&&olMes(c.set)===mes);
   let tmq=0,tmi=0;
   h+=`<div class="card"><h3 style="text-transform:capitalize">${MESOS[mes]} — resum del mes</h3>`;
   if(!mr.length)h+='<div class="muted">Cap compra aquest mes.</div>';
@@ -2558,7 +2596,7 @@ function vOlives(){
   h+='</div>';
   const tq=[0,0,0],tqq=[0,0,0];let ta=0,taq=0;
   const lq=[[],[],[]],lAny=[],lProd={};   // línies amb preu de venda, per calcular el benefici
-  Y().olivesCompres.forEach(c=>{if(!c.set)return;const q=Math.floor(olMes(c.set)/4);
+  olivesNetes().forEach(c=>{if(!c.set)return;const q=Math.floor(olMes(c.set)/4);
     tq[q]+=num(c.imp);tqq[q]+=num(c.quant);ta+=num(c.imp);taq+=num(c.quant);
     const l={qty:c.quant,imp:c.imp,pv:olPv(c)};lq[q].push(l);lAny.push(l);(lProd[c.prod]=lProd[c.prod]||[]).push(l);});
   const QN=['Q1 (gen–abr)','Q2 (mai–ago)','Q3 (set–des)'];
@@ -2591,7 +2629,7 @@ function olGraellaHTML(){
   const cat=olCat();
   const mode=['imp','quant','pkg'].includes(ctx.olGridMode)?ctx.olGridMode:'imp';
   const data={};cat.forEach(p=>data[p.id]={q:Array(12).fill(0),i:Array(12).fill(0)});
-  Y().olivesCompres.forEach(c=>{if(!c.set||!data[c.prod])return;const m=olMes(c.set);data[c.prod].q[m]+=num(c.quant);data[c.prod].i[m]+=num(c.imp);});
+  olivesNetes().forEach(c=>{if(!c.set||!data[c.prod])return;const m=olMes(c.set);data[c.prod].q[m]+=num(c.quant);data[c.prod].i[m]+=num(c.imp);});
   const cell=(q,i)=>mode==='quant'?(q?q.toLocaleString('ca-ES'):''):mode==='imp'?(i?eur0(i):''):(q?eur(r2(i/q)):'');
   const label=mode==='quant'?'Quantitat':mode==='imp'?'Cost':'€/kg';
   let h=`<div style="margin:8px 0"><button class="small" id="olGridMode">Mostrant: ${label} (canvia)</button></div>`;
@@ -2654,6 +2692,15 @@ function formOlivaCompra(c){
       const obj={id:c.id||uid(),prod:el.querySelector('#oc_prod').value,set:mondayISO(parseISO(setv)),
         quant:numOrNull(el.querySelector('#oc_quant').value),imp:numOrNull(el.querySelector('#oc_imp').value),
         pv:numOrNull(el.querySelector('#oc_pv').value),bloc:c.bloc||''};
+      /* Canviar el producte o la setmana no pot deixar dos registres de la mateixa oliva la mateixa
+         setmana: era així com apareixien els duplicats que feien comptar Fp i FpL el doble. */
+      const xoc=Y().olivesCompres.find(x=>x.id!==obj.id&&x.set===obj.set&&x.prod===obj.prod);
+      if(xoc){
+        const p=Y().olivesCat.find(x=>x.id===obj.prod);
+        alert('La '+((p&&p.nom)||'oliva')+' ja té una compra apuntada la setmana del '+dataCA(obj.set)+
+          ' ('+eur0(num(xoc.imp))+').\n\nNomés hi pot haver una compra per oliva i setmana: edita aquella, o fes servir «Edita compres d\'aquesta setmana».');
+        return;
+      }
       if(c.id){const i=Y().olivesCompres.findIndex(x=>x.id===c.id);Y().olivesCompres[i]=obj;}else Y().olivesCompres.push(obj);
       save();tancaModal();go('compres',{tab:'olives',setOl:obj.set});
     });
@@ -2665,7 +2712,7 @@ function formSetmanaOlives(setISO){
   const cat=olCat();
   if(!cat.length){formOlivaCat();return;}
   const set=setISO||ctx.setOl||defaultSet();
-  const recs=Y().olivesCompres.filter(c=>c.set===set);
+  const recs=olivesNetes().filter(c=>c.set===set);
   const cur={};recs.forEach(c=>cur[c.prod]=c);
   const blocSel=b=>`<select class="oc_bloc" style="width:100%"><option value="">—</option><option value="fp" ${b==='fp'?'selected':''}>Fp</option><option value="fpl" ${b==='fpl'?'selected':''}>FpL</option></select>`;
   const rows=cat.map(p=>{const c=cur[p.id];
@@ -2687,9 +2734,16 @@ function formSetmanaOlives(setISO){
     el.querySelector('#se_desa').addEventListener('click',()=>{
       el.querySelectorAll('tr[data-prod]').forEach(tr=>{
         const prod=tr.dataset.prod,q=numOrNull(tr.querySelector('.oc_q').value),im=numOrNull(tr.querySelector('.oc_i').value),bloc=tr.querySelector('.oc_bloc').value;
-        const ex=Y().olivesCompres.find(c=>c.set===set&&c.prod===prod);
-        if((q==null||q===0)&&(im==null||im===0)){if(ex)Y().olivesCompres=Y().olivesCompres.filter(c=>c!==ex);return;}
-        if(ex){ex.quant=q;ex.imp=im;ex.bloc=bloc;}
+        // desar la setmana deixa UN sol registre per oliva: si n'hi havia de repetits, se'n van
+        const tots=Y().olivesCompres.filter(c=>c.set===set&&c.prod===prod);
+        if((q==null||q===0)&&(im==null||im===0)){
+          if(tots.length)Y().olivesCompres=Y().olivesCompres.filter(c=>tots.indexOf(c)<0);
+          return;
+        }
+        if(tots.length){
+          const ex=tots[0]; ex.quant=q; ex.imp=im; ex.bloc=bloc;
+          if(tots.length>1)Y().olivesCompres=Y().olivesCompres.filter(c=>c===ex||tots.indexOf(c)<0);
+        }
         else Y().olivesCompres.push({id:uid(),prod:prod,set:set,quant:q,imp:im,bloc:bloc});
       });
       save();tancaModal();go('compres',{tab:'olives',setOl:set});
@@ -2705,6 +2759,14 @@ function bindCompres(){
   document.querySelectorAll('[data-olcat]').forEach(el=>el.addEventListener('click',()=>formOlivaCat(Y().olivesCat.find(x=>x.id===el.dataset.olcat))));
   document.querySelectorAll('[data-navsetol]').forEach(b=>b.addEventListener('click',()=>go('compres',{tab:'olives',setOl:navSet(ctx.setOl||defaultSet(),parseInt(b.dataset.navsetol)),olGrid:ctx.olGrid,olGridMode:ctx.olGridMode})));
   const es=$('#editSet'); if(es)es.addEventListener('click',()=>formSetmanaOlives(ctx.setOl));
+  const on=$('#olNeteja');
+  if(on)on.addEventListener('click',()=>{
+    const dups=olivesDuplicades();
+    if(!dups.length)return;
+    if(!confirm('Es treuran '+dups.length+' compra(es) d\'olives repetida(es).\n\nLes xifres de Fp i FpL no es mouran: aquestes ja no hi comptaven.\n\nContinuo?'))return;
+    Y().olivesCompres=Y().olivesCompres.filter(c=>dups.indexOf(c)<0);
+    save(); go('compres',{...ctx,tab:'olives'});
+  });
   const og=$('#olGrid'); if(og)og.addEventListener('click',()=>go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:!ctx.olGrid,olGridMode:ctx.olGridMode}));
   const ogm=$('#olGridMode'); if(ogm)ogm.addEventListener('click',()=>{const nx={imp:'quant',quant:'pkg',pkg:'imp'};go('compres',{tab:'olives',setOl:ctx.setOl,olGrid:ctx.olGrid,olGridMode:nx[ctx.olGridMode]||'quant'});});
   const ac=$('#addCat'); if(ac)ac.addEventListener('click',()=>formOlivaCat());
@@ -2745,7 +2807,7 @@ function pecesAny(){
         ((d&&d[k])||[]).forEach(l=>posa(bloc,m,'dia',l.c,num(l.imp)));
         factPagsDia(ds).filter(x=>factBlock(x.f)===bloc).forEach(x=>posa(bloc,m,'factura',x.f.concepte||x.f.empresa||'Factura',num(x.imp)));
       });
-      (Y().olivesCompres||[]).filter(c=>(c.bloc==='fp'||c.bloc==='fpl')&&c.set&&olDissabte(c.set)===ds).forEach(c=>{
+      olivesNetes().filter(c=>(c.bloc==='fp'||c.bloc==='fpl')&&c.set&&olDissabte(c.set)===ds).forEach(c=>{
         const p=(Y().olivesCat||[]).find(x=>x.id===c.prod);
         posa(c.bloc,m,'olives',p?p.nom:'Olives',num(c.imp));
       });
@@ -2959,7 +3021,7 @@ function foraDelRangItems(mDes,mFins){
         out.push({ds:ds,tipus:'Factura',cat:b==='fp'?'Fp':b==='fpl'?'FpL':'Despeses',imp:num(x.imp),factId:x.f.id,
           desc:(x.f.empresa||'(sense proveïdor)')+(x.f.concepte?' · '+x.f.concepte:'')+(x.talo?' · taló '+x.talo:'')});
       });
-      (Y().olivesCompres||[]).filter(c=>c.bloc&&c.set&&olDissabte(c.set)===ds).forEach(c=>{
+      olivesNetes().filter(c=>c.bloc&&c.set&&olDissabte(c.set)===ds).forEach(c=>{
         const p=(Y().olivesCat||[]).find(x=>x.id===c.prod);
         out.push({ds:ds,tipus:'Olives',desc:p?p.nom:'Olives',cat:c.bloc==='fp'?'Fp':'FpL',imp:num(c.imp)});
       });
@@ -3155,14 +3217,14 @@ function exportaXLSX(){
   const ohead=['Tipus','Nom']; MESOS.forEach(m=>{ohead.push(m+' Q');ohead.push(m+' €');}); ohead.push('Q1 €','Q2 €','Q3 €','Quant. any','Cost any','€/kg any');
   const oo=[ohead];
   const odata={}; catO.forEach(p=>odata[p.id]={q:Array(12).fill(0),i:Array(12).fill(0)});
-  Y().olivesCompres.forEach(c=>{if(!c.set||!odata[c.prod])return;const m=parseInt(c.set.slice(5,7))-1;odata[c.prod].q[m]+=num(c.quant);odata[c.prod].i[m]+=num(c.imp);});
+  olivesNetes().forEach(c=>{if(!c.set||!odata[c.prod])return;const m=parseInt(c.set.slice(5,7))-1;odata[c.prod].q[m]+=num(c.quant);odata[c.prod].i[m]+=num(c.imp);});
   catO.forEach(p=>{const d=odata[p.id];const row=[p.tipus,p.nom];const qt=[0,0,0];let aq=0,ai=0;
     for(let m=0;m<12;m++){row.push(d.q[m]||'');row.push(d.i[m]?r2(d.i[m]):'');qt[Math.floor(m/4)]+=d.i[m];aq+=d.q[m];ai+=d.i[m];}
     row.push(r2(qt[0]),r2(qt[1]),r2(qt[2]),r2(aq),r2(ai),aq?r2(ai/aq):'');oo.push(row);});
   fullA(wb,oo,'Olives');
   // Olives — detall setmanal
   const od=[['Setmana','Tipus','Nom','Quantitat','Cost','€/kg']];
-  Y().olivesCompres.slice().filter(c=>c.set).sort((a,b)=>a.set<b.set?-1:1).forEach(c=>{const p=Y().olivesCat.find(x=>x.id===c.prod);
+  olivesNetes().slice().filter(c=>c.set).sort((a,b)=>a.set<b.set?-1:1).forEach(c=>{const p=Y().olivesCat.find(x=>x.id===c.prod);
     od.push([c.set,p?p.tipus:'',p?p.nom:'?',n0(c.quant),n0(c.imp),num(c.quant)?r2(num(c.imp)/num(c.quant)):'']);});
   fullA(wb,od,'Olives setmanal');
   // Conserva (una fila per producte de cada factura)

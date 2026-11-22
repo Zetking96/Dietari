@@ -125,6 +125,15 @@ desplaça la pàgina del darrere, i sense això en desar des d'un formulari sort
 - A `migraComissio` **no hi pot tornar** el filtre que esborrava línies amb «comiss» al concepte:
   corria a cada arrencada i es menjava línies noves teves.
 
+**Olives: una compra per setmana i per oliva.** És l'únic que el model permet (la graella setmanal
+té una casella per oliva), així que dos registres de la mateixa setmana i oliva són brossa. Abans
+`olivesDiaBloc` els sumava tots i Fp/FpL sortien el doble, mentre la graella i el resum de setmana
+només n'ensenyaven un i el resum del mes els sumava: tres xifres diferents. Ara **totes les
+lectures passen per `olivesNetes()`** (una per setmana+oliva) i només les escriptures toquen
+`Y().olivesCompres`. Si afegeixes una lectura nova, fes-la passar per `olivesNetes()`.
+`olivesDuplicades()` alimenta l'avís de la pestanya Olives i el botó que els treu; desar una
+setmana a la graella també els consolida, i `formOlivaCompra` ja no deixa crear-ne.
+
 **Mode privat**: el botó de l'ull de la capçalera amaga totes les xifres per poder ensenyar l'app
 sense ensenyar els números. `eur()`/`eur0()` retornen «•••» i la classe `body.privat` deixa
 transparents (amb barra grisa) `.num`, `td.n`, `.kpi .v`, `.imp`, `.big`, `.comprec`,
